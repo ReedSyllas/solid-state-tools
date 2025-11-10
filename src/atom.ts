@@ -25,7 +25,7 @@ export function asig<T>(...args: [ value?: T, options?: SignalOptions<T> ]): Ato
 	return atom(args.length === 0 ? createSignal<T>() : createSignal(args[0] as T, args[1]));
 }
 
-export type Cosig<T> = [
+export type Cosignal<T> = [
 	() => T,
 	(value: T) => T,
 ];
@@ -33,8 +33,8 @@ export type Cosig<T> = [
 /**
  * Creates a signal from a getter/setter pair.
  */
-export function cosig<T>(cosig: Cosig<T>): Signal<T> {
-	const [ get, set ] = cosig;
+export function createCosignal<T>(cosignal: Cosignal<T>): Signal<T> {
+	const [ get, set ] = cosignal;
 	return [
 		get,
 		(value) => set((typeof value === "function") ? (value as any)(untrack(get)) : value),
