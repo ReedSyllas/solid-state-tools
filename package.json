@@ -1,0 +1,23 @@
+{
+	"name": "solid-state-tools",
+	"version": "1.0.0",
+	"description": "A collection of Solid JS state utilities",
+	"author": "Reed Syllas <reedsyllas@gmail.com>",
+	"license": "ISC",
+	"keywords": [
+		"solid",
+		"state"
+	],
+	"main": "./dist/index.js",
+	"scripts": {
+		"build": "tsc",
+		"prepublishOnly": "pnpm run build"
+	},
+	"packageManager": "pnpm@10.21.0",
+	"peerDependencies": {
+		"solid-js": "^1.9.10"
+	},
+	"devDependencies": {
+		"typescript": "^5.9.3"
+	}
+}
