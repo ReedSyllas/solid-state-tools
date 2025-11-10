@@ -4,20 +4,37 @@
 	"description": "A collection of Solid JS state utilities",
 	"author": "Reed Syllas <reedsyllas@gmail.com>",
 	"license": "ISC",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ReedSyllas/solid-state-tools.git"
+	},
+	"homepage": "https://github.com/ReedSyllas/solid-state-tools#readme",
 	"keywords": [
 		"solid",
 		"state"
 	],
+	"exports": {
+		"import": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"type": "module",
 	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist"
+	],
 	"scripts": {
 		"build": "tsc",
 		"prepublishOnly": "pnpm run build"
 	},
 	"packageManager": "pnpm@10.21.0",
+	"devDependencies": {
+		"@types/node": "^24.10.0",
+		"typescript": "^5.9.3"
+	},
 	"peerDependencies": {
 		"solid-js": "^1.9.10"
-	},
-	"devDependencies": {
-		"typescript": "^5.9.3"
 	}
 }
