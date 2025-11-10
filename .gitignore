@@ -1,2 +1,18 @@
-node_modules
-dist
+# Node.js
+node_modules/
+
+# Typescript
+dist/
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+
+# Editor/IDE Specific
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
