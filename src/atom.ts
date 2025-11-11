@@ -1,4 +1,4 @@
-import { createSignal, untrack, type Signal, type SignalOptions } from "solid-js";
+import { createMemo, createSignal, untrack, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
 
 /**
@@ -40,7 +40,7 @@ export function atom<const T extends SignalLike>(value: T): Atom<T>;
 export function atom(value: unknown): unknown {
 	if (isDev) {
 		// Assert that the input is valid.
-		// For production, the checks are skipped for performance.
+		// For production, these checks are skipped for performance.
 		
 		if (!Array.isArray(value)) {
 			throw new Error(`expected a getter setter pair as an array, but got ${typeof value}`);
@@ -68,43 +68,50 @@ export type Asig<T> = Atom<Signal<T>>;
  * ### Example
  * ```
  * const count = asig(0);
+ *
+ * count(10);
+ * console.log(count()); // 10
+ *
+ * count(x => x + 10);
+ * console.log(count()); // 20
  * ```
  */
 export function asig<T>(): Atom<Signal<T | undefined>>;
 export function asig<T>(value: T, options?: SignalOptions<T>): Atom<Signal<T>>;
-export function asig<T>(...args: [ value?: T, options?: SignalOptions<T> ]): Atom<Signal<T> | Signal<T | undefined>> {
-	return atom(args.length === 0 ? createSignal<T>() : createSignal(args[0] as T, args[1]));
+export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undefined>): Atom<Signal<T | undefined>> {
+	return atom(createSignal(value, options));
 }
 
 /**
  * A getter setter pair.
  * While similar to `Signal`, the setter of
- *  `Cosignal` does not accept a mapping function.
+ *  `Cosignal` does not accept a mapping function;
+ *  nor does it return a result.
  */
 export type Cosignal<T> = [
 	() => T,
-	(value: T) => T,
+	(value: T) => void,
 ];
 
 /**
- * Create signal from a getter/setter tuple.
+ * Create a signal from a cosignal.
  *
  * ### Example
  * ```
  * const [ count, setCount ] = createSignal(0);
- * const [ double, setDouble ] = createCosignal([
+ * const [ double, setDouble ] = createSignalPair([
  * 	() => count() * 2,
  * 	(x) => void setCount(x / 2),
  * ]);
  *
  * double(x => x + 2);
- * console.log(double(), count()); // 12 6
+ * console.log(double(), count()); // 2 1
  * ```
  */
-export function createCosignal<T>(cosignal: Cosignal<T>): Signal<T> {
+export function createCouple<T>(cosignal: Cosignal<T>): Signal<T> {
 	if (isDev) {
 		// Assert that the input is valid.
-		// For production, the checks are skipped for performance.
+		// For production, these checks are skipped for performance.
 		
 		if (!Array.isArray(cosignal)) {
 			throw new Error(`expected a getter setter pair as an array, but got ${typeof cosignal}`);
@@ -116,9 +123,10 @@ export function createCosignal<T>(cosignal: Cosignal<T>): Signal<T> {
 			throw new Error(`expected a setter function, but got ${typeof cosignal[1]}`);
 		}
 	}
-	const [ get, set ] = cosignal;
-	return [
-		get,
-		(value) => set((typeof value === "function") ? (value as any)(untrack(get)) : value),
-	] as Signal<T>;
+	const get = createMemo(cosignal[0]);
+	const set = ((value) => {
+		cosignal[1]((typeof value === "function") ? (value as any)(untrack(get)) : value);
+		return get();
+	}) as Setter<T>;
+	return [ get, set ] as const;
 }
