@@ -51,11 +51,11 @@ const [ double, setDouble ] = createCosignal([
 ]);
 
 // Yet, we can still pass a mapping function here.
-double(x => x + 2);
+setDouble(x => x + 2);
 console.log(double(), count()); // 12 6
 
 // Or simply use it traditionally.
-double(10);
+setDouble(10);
 console.log(double(), count()); // 10 5
 ```
 
@@ -69,10 +69,10 @@ const [ double, setDouble ] = createCosignal([
 ]);
 ```
 
-Finally, co-signals can be wrapped with `atom`, of course.
+Finally, co-signals can be wrapped with `atom` to combine their getter and setter.
 
 ```ts
 const double = atom(createCosignal(/* ... */));
 ```
 
-To be clear, `createCosignal` and `createSignal` return the same kind of value and therefore should work in every situation native signals do.
+To be clear, `createCosignal` and `createSignal` return the same kind of value (`Signal`) and therefore should work in every situation native signals do.
