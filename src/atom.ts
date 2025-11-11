@@ -4,7 +4,7 @@ import { isDev } from "solid-js/web";
 /**
  * Any tuple of two functions where the first accepts no arguments and the second accepts any amount.
  */
-export type Atomical = readonly [ () => any, (...args: any) => any ];
+export type SignalLike = readonly [ () => any, (...args: any) => any ];
 
 /**
  * An atom is a polymorphic function that calls one of two
@@ -13,7 +13,7 @@ export type Atomical = readonly [ () => any, (...args: any) => any ];
  * If called with zero arguments, the first function is called.
  * Otherwise, the second function is called and all of the arguments are forwarded to it.
  */
-export type Atom<T extends Atomical = Atomical> = T[0] & T[1];
+export type Atom<T extends SignalLike = SignalLike> = T[0] & T[1];
 
 /**
  * Combine a getter and setter function pair into one.
@@ -36,7 +36,7 @@ export type Atom<T extends Atomical = Atomical> = T[0] & T[1];
  * count(count() + 1);
  * ```
  */
-export function atom<const T extends Atomical>(value: T): Atom<T>;
+export function atom<const T extends SignalLike>(value: T): Atom<T>;
 export function atom(value: unknown): unknown {
 	if (isDev) {
 		// Assert that the input is valid.
