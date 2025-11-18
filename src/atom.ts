@@ -126,7 +126,7 @@ export function createCouple<T>(cosignal: Cosignal<T>): Signal<T> {
 	const get = createMemo(cosignal[0]);
 	const set = ((value) => {
 		cosignal[1]((typeof value === "function") ? (value as any)(untrack(get)) : value);
-		return get();
+		return untrack(get);
 	}) as Setter<T>;
 	return [ get, set ] as const;
 }
