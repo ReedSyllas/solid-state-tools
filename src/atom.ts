@@ -38,23 +38,23 @@ export type Atom<T extends SignalLike = SignalLike> = T[0] & T[1];
  * count(count() + 1);
  * ```
  */
-export function atom<const T extends SignalLike>(value: T): Atom<T>;
-export function atom(value: unknown): unknown {
+export function atom<const T extends SignalLike>(signal: T): Atom<T> {
 	if (isDev) {
 		// Assert that the input is valid.
 		// For production, these checks are skipped for performance.
 		
-		if (!Array.isArray(value)) {
-			throw new Error(`expected a getter setter pair as an array, but got ${typeof value}`);
+		if (!Array.isArray(signal)) {
+			throw new Error(`expected a getter setter pair as an array, but got ${typeof signal}`);
 		}
-		if (typeof value[0] !== "function") {
-			throw new Error(`expected a getter function, but got ${typeof value[0]}`);
+		if (typeof signal[0] !== "function") {
+			throw new Error(`expected a getter function, but got ${typeof signal[0]}`);
 		}
-		if (typeof value[1] !== "function") {
-			throw new Error(`expected a setter function, but got ${typeof value[1]}`);
+		if (typeof signal[1] !== "function") {
+			throw new Error(`expected a setter function, but got ${typeof signal[1]}`);
 		}
 	}
-	return (...args: unknown[]) => (args.length === 0) ? (value as SignalLike)[0]() : (value as SignalLike)[1](...args);
+	const [ getter, setter ] = signal;
+	return (...args: unknown[]) => (args.length === 0) ? getter() : setter(...args);
 }
 
 /**
