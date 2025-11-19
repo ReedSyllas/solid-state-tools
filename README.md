@@ -115,7 +115,8 @@ But, wouldn't it be convenient if we could skip the crusty boilerplate?
 
 It accepts a getter and a co-setter and returns a signal.
 A co-setter is similar to a setter, except that it doesn't take a function nor does it return a value.
-Basically, it's the previous example without the boilerplate. See the following example:
+Basically, it's the previous example without the boilerplate.
+See it in action:
 
 ```ts
 const [ count, setCount ] = createSignal(0);
