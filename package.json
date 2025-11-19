@@ -1,6 +1,6 @@
 {
 	"name": "solid-state-tools",
-	"version": "1.2.0",
+	"version": "1.3.0",
 	"description": "A collection of Solid JS state utilities",
 	"author": "Reed Syllas <reedsyllas@gmail.com>",
 	"license": "ISC",
