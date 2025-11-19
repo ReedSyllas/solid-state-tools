@@ -58,16 +58,8 @@ export function atom(value: unknown): unknown {
 }
 
 /**
- * A getter setter pair.
- * While similar to `Signal`, the setter of
- *  `Cosignal` does not accept a mapping function;
- *  nor does it return a result.
+ * Similar to a signal setter, except it doesn't accept a mapping function nor return a result.
  */
-export type Cosignal<T> = [
-	Accessor<T>,
-	Cosetter<T>,
-];
-
 export type Cosetter<T> = (value: T) => void;
 
 /**
@@ -85,31 +77,28 @@ export type Cosetter<T> = (value: T) => void;
  * console.log(double(), count()); // 2 1
  * ```
  */
-export function createCouple<T>(cosignal: Cosignal<T>): Signal<T> {
+export function createCouple<T>(getter: Accessor<T>, setter: Cosetter<T>): Signal<T> {
 	if (isDev) {
 		// Assert that the input is valid.
 		// For production, these checks are skipped for performance.
 		
-		if (!Array.isArray(cosignal)) {
-			throw new Error(`expected a getter setter pair as an array, but got ${typeof cosignal}`);
+		if (typeof getter !== "function") {
+			throw new Error(`expected getter to be a function, but got ${typeof getter}`);
 		}
-		if (typeof cosignal[0] !== "function") {
-			throw new Error(`expected a getter function, but got ${typeof cosignal[0]}`);
-		}
-		if (typeof cosignal[1] !== "function") {
-			throw new Error(`expected a setter function, but got ${typeof cosignal[1]}`);
+		if (typeof setter !== "function") {
+			throw new Error(`expected setter to be a function, but got ${typeof setter}`);
 		}
 	}
-	const get = createMemo(cosignal[0]);
+	const get = createMemo(getter);
 	const set = ((source) => {
 		const value = (typeof source === "function") ? (source as Function)(untrack(get)) : source;
-		cosignal[1](value);
+		setter(value);
 		return value;
 	}) as Setter<T>;
 	return [ get, set ] as const;
 }
 
-// SHORTHAND UTILITIES
+// SHORTHANDS
 
 /**
  * An atomic signal.
@@ -119,7 +108,7 @@ export type Asig<T> = Atom<Signal<T>>;
 
 /**
  * Create an atomic signal.
- * Shorthand for `atom(createSignal(...))`.
+ * Short for `atom(createSignal(...))`.
  * 
  * ### Example
  * ```
@@ -140,7 +129,7 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
 
 /**
  * Create an atomic cosignal pair.
- * Shorthand for `atom(createCouple([ ... ]))`.
+ * Short for `atom(createCouple(...))`.
  * 
  * ### Example
  * ```
@@ -155,5 +144,5 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
  * ```
  */
 export function apair<T>(getter: Accessor<T>, setter: Cosetter<T>): Asig<T> {
-	return atom(createCouple([ getter, setter ]));
+	return atom(createCouple(getter, setter));
 }

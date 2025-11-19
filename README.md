@@ -11,7 +11,7 @@ The package is small and only has a peer dependency of Solid JS.
 This library introduces some new primitives:
 
 1. [atom](#atoms-atom)
-2. [createCouple](#couples-and-co-signals-createcouple)
+2. [createCouple](#couples-createcouple)
 
 And, a few shorthand functions that combine these primitives and those from Solid JS together.
 
@@ -56,7 +56,7 @@ const count: Asig<number> = asig(0);
 const count: Atom<Signal<number>> = atom(createSignal(0));
 ```
 
-## Couples and co-signals (`createCouple`)
+## Couples (`createCouple`)
 
 A signal can be summarized as a getter setter pair.
 However, the setter of a Solid JS signal is more complex than it appears at first glance.
@@ -67,7 +67,7 @@ Why?
 	setCount(x => x + 1);
 	```
 
-2. It also returns the value. This essentially makes it "transparent".
+2. It also returns the value.
 	```ts
 	const [ _count, setCount ] = createSignal(0);
 
@@ -86,15 +86,15 @@ const [ double, setDouble ] = [
 	createMemo(() => count() * 2),
 	
 	// The setter
-	(value: number | ((prev: number) => number)) => {
+	(newValue: number | ((prev: number) => number)) => {
 		
-		// The possibility of a function must be handled.
-		const newValue = (typeof value === "function") ? value(untrack(double)) : value;
+		// The function case must be handled.
+		const unwrappedNewValue = (typeof newValue === "function") ? newValue(untrack(double)) : newValue;
 		
-		setCount(newValue / 2);
+		setCount(unwrappedNewValue / 2);
 		
 		// And the result must be returned.
-		return newValue;
+		return unwrappedNewValue;
 	},
 ];
 ```
@@ -111,14 +111,14 @@ But, wouldn't it be convenient if we could skip the crusty boilerplate?
 
 **Enter the `createCouple` utility**
 
-It accepts a co-signal and returns a regular signal.
-A co-signal is similar to signal, except that the setter doesn't accept a function nor does it return a value.
-Basically, it's the previous example without the boilerplate. Take a look.
+It accepts a getter and a co-setter and returns a signal.
+A co-setter is similar to a setter, except that it doesn't take a function nor does it return a value.
+Basically, it's the previous example without the boilerplate. See the following example:
 
 ```ts
 const [ count, setCount ] = createSignal(0);
 
-const [ double, setDouble ] = createCouple([
+const [ double, setDouble ] = createCouple(
 	() => count() * 2,
 	
 	(newValue) => {
@@ -127,7 +127,7 @@ const [ double, setDouble ] = createCouple([
 		
 		// Nor do we need to return anything.
 	},
-]);
+);
 
 // Yet, we can still pass a function in.
 setDouble(x => x + 2);
@@ -141,25 +141,27 @@ Much better, right?
 
 > [!NOTE]
 > The getter passed to `createCouple` is always memoized.
-> This has the consequence that the getter is immediately invoked by `createMemo` (a Solid JS feature).
+> This has the consequence that the getter is invoked immediately during creation of the couple.
 
-A `createCouple` call, like any expression that evaluates to a signal, can be converted into an atom so that the getter and setter are merged into one.
+By the way! A `createCouple` call, like any expression that evaluates to a signal, can be converted into an atom so that the getter and setter are merged into one.
 
 ```ts
-const double = atom(createCouple([ /* ... */ ]));
+const double = atom(createCouple(/* ... */));
 ```
 
 ## Atomic couples (`apair`)
 
-Similar to [atomic signals](#atomic-signals-asig), wrapping a `createCouple` call with `atom` is a common enough pattern to warrant a shorthand function: `apair`.
+Similar to [atomic signals](#atomic-signals-asig), wrapping a `createCouple` call with `atom` is a common enough pattern to warrant a shorthand: `apair`.
 
 ```ts
 const double = apair(() => count() * 2, (double) => count(double / 2));
 // is short for
-const double = atom(createCouple([ () => count() * 2, (double) => count(double / 2) ]));
+const double = atom(createCouple(() => count() * 2, (double) => count(double / 2)));
 ```
 
 # Conclusion
 
 Perhaps you can see the power of the above primitives.
 Not only in what they do, but also in how they combine.
+
+More utilities for this library are in the works and will be coming soon.
