@@ -1,5 +1,7 @@
 # Solid State Tools
 
+Links: [GitHub Repository](https://github.com/ReedSyllas/solid-state-tools), [NPM Package](https://www.npmjs.com/package/solid-state-tools).
+
 Solid State Tools is a collection of simple utilities for managing [Solid JS](https://docs.solidjs.com/) state.
 
 All features are intended to compliment Solid JS's existing state system, building upon the existing foundation.
