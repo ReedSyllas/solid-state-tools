@@ -142,7 +142,7 @@ console.log(setDouble(10), count()); // 10 5
 Much better, right?
 
 > [!NOTE]
-> The getter passed to `createCouple` is always memoized.
+> The getter passed to `createCouple` is always [memoized](https://docs.solidjs.com/concepts/derived-values/memos).
 > This has the consequence that the getter is invoked immediately during creation of the couple.
 
 By the way! A `createCouple` call, like any expression that evaluates to a signal, can be converted into an atom so that the getter and setter are merged into one.
