@@ -1,16 +1,31 @@
-# Solid JS State Tools
+# Solid State Tools
 
-This is a collection of simple utilities for managing [Solid JS](https://docs.solidjs.com/) state.
-It is intended to compliment Solid JS's existing state system, not replace it.
+Solid State Tools is a collection of simple utilities for managing [Solid JS](https://docs.solidjs.com/) state.
 
-This package is tiny and only has a peer dependency of Solid JS.
+All features are intended to compliment Solid JS's existing state system, building upon the existing foundation.
+
+The package is small and only has a peer dependency of Solid JS.
+
+# Usage
+
+This library introduces some new primitives:
+
+1. [atom](#atoms-atom)
+2. [createCouple](#couples-and-co-signals-createcouple)
+
+And, a few shorthand functions that combine these primitives and those from Solid JS together.
+
+1. [asig](#atomic-signals-asig)
+2. [apair](#atomic-couples-apair)
+
+Read the sections below for a breakdown of each utility.
 
 ## Atoms (`atom`)
 
 Atoms combine the getter and setter of a [signal](https://docs.solidjs.com/concepts/signals) into one function.
 
 ```ts
-const count = atom(createSignal(0));
+const count: Atom<Signal<number>> = atom(createSignal(0));
 
 console.log(count()); // 0
 
@@ -24,29 +39,44 @@ count((c) => c + 1);
 console.log(count()); // 102
 ```
 
-When called with no arguments, the atom acts like the signal's getter. If an argument is passed, it is forwarded to the signal's setter. Note that `undefined` _is_ considered an argument and is forwarded to the setter, as desired.
+When called with no arguments, the atom acts like the signal's getter.
+If an argument is passed, it is forwarded to the signal's setter. Note that `undefined` _is_ considered an argument and is forwarded to the setter.
 
-Atoms simplify the boilerplate that comes with managing getters and setters separately. However, signals are still preferred for granular control of the getter and setter. Additionally, atoms incur a tiny performance cost. Thus, atoms do not replace signals. They coexist.
+Atoms simplify the boilerplate that comes with managing separate getters and setters.
+However, signals are still preferred when granular control of the getter and setter is needed.
+Additionally, atoms incur a tiny performance cost. Thus, atoms do not replace signals. They coexist.
 
 ## Atomic signals (`asig`)
 
-Because creating and wrapping a signal with `atom` is so common, a shorthand utility was created called `asig` (atomic signal).
+Creating a signal and immediately 'atomizing' it is a common pattern. The `asig` function was created for this, along with its related type `Asig`.
 
 ```ts
-const count = asig(0);
-// is a shorthand for
-const count = atom(createSignal(0));
+const count: Asig<number> = asig(0);
+// is short for
+const count: Atom<Signal<number>> = atom(createSignal(0));
 ```
 
-## Co-signals (`createCouple`)
+## Couples and co-signals (`createCouple`)
 
-A signal can be summarized as a getter setter pair. However, Solid JS's setters are more complex than just a function that accepts the new value. They can also accept a function which acts like a map predicate from the old value to the new one.
+A signal can be summarized as a getter setter pair.
+However, the setter of a Solid JS signal is more complex than it appears at first glance.
+Why?
 
-```ts
-setCount(x => x + 1);
-```
+1. It accepts a function which transforms the previous value into the new one.
+	```ts
+	setCount(x => x + 1);
+	```
 
-All of this is to say that creating signal pairs can be tedious because the setter has to handle this edge case. Take a look at the below example.
+2. It also returns the value. This essentially makes it "transparent".
+	```ts
+	const [ _count, setCount ] = createSignal(0);
+
+	console.log(setCount(10));         // Prints: 10
+	console.log(setCount(x => x + 5)); // Prints: 15
+	```
+
+All of this is to say that creating custom signal pairs can be tedious.
+Below is an example showing the complexity involved.
 
 ```ts
 const [ count, setCount ] = createSignal(0);
@@ -58,8 +88,8 @@ const [ double, setDouble ] = [
 	// The setter
 	(value: number | ((prev: number) => number)) => {
 		
-		// Possibility of a function must be explicitly handled.
-		const newValue = (typeof value === "function") ? value(double()) : value;
+		// The possibility of a function must be handled.
+		const newValue = (typeof value === "function") ? value(untrack(double)) : value;
 		
 		setCount(newValue / 2);
 		
@@ -67,15 +97,23 @@ const [ double, setDouble ] = [
 		return newValue;
 	},
 ];
-
-// Both of the below work, as a signal should.
-setDouble(10);         // double: 10, count: 5
-setDouble(x => x + 1); // double: 11, count: 5.5
 ```
 
-Wouldn't it be convenient if we didn't have to handle all of that extra fluff though?
+With that, all of the statements below work exactly as expected.
 
-Enter co-signals. `Cosignal` is a getter setter pair like `Signal`, except that the setter doesn't accept a mapping function nor return a value. The `createCouple` function accepts a co-signal as input.
+```ts
+setDouble(10);              // double: 10, count: 5
+setDouble(x => x + 1);      // double: 11, count: 5.5
+console.log(setDouble(20)); // Prints: 20
+```
+
+But, wouldn't it be convenient if we could skip the crusty boilerplate?
+
+**Enter the `createCouple` utility**
+
+It accepts a co-signal and returns a regular signal.
+A co-signal is similar to signal, except that the setter doesn't accept a function nor does it return a value.
+Basically, it's the previous example without the boilerplate. Take a look.
 
 ```ts
 const [ count, setCount ] = createSignal(0);
@@ -83,11 +121,11 @@ const [ count, setCount ] = createSignal(0);
 const [ double, setDouble ] = createCouple([
 	() => count() * 2,
 	
-	(x) => {
-		// Notice how we don't need to handle `x` being a function here.
-		setCount(x / 2);
+	(newValue) => {
+		// Notice how we don't need to handle `newValue` being a function here.
+		setCount(newValue / 2);
 		
-		// Nor do we need to return the result.
+		// Nor do we need to return anything.
 	},
 ]);
 
@@ -99,16 +137,29 @@ console.log(double(), count()); // 2 1
 console.log(setDouble(10), count()); // 10 5
 ```
 
-The `createCouple` function transforms a co-signal into a signal. In what way?
-1. The getter is memoized for you.
-2. The setter is wrapped so that if a function is passed in, it is evaluated with the current value and then forwarded to the cosignal's setter, returning the latest result.
+Much better, right?
 
-The signal returned by `createCouple` can also be wrapped with `atom` to combine the getter and setter into one.
+> [!NOTE]
+> The getter passed to `createCouple` is always memoized.
+> This has the consequence that the getter is immediately invoked by `createMemo` (a Solid JS feature).
+
+A `createCouple` call, like any expression that evaluates to a signal, can be converted into an atom so that the getter and setter are merged into one.
 
 ```ts
-const double = atom(createCouple(/* ... */));
+const double = atom(createCouple([ /* ... */ ]));
 ```
 
----
+## Atomic couples (`apair`)
 
-Perhaps you can see the power of the above primitives. Not only in what they can do on their own, but also in what they can do when combined.
+Similar to [atomic signals](#atomic-signals-asig), wrapping a `createCouple` call with `atom` is a common enough pattern to warrant a shorthand function: `apair`.
+
+```ts
+const double = apair(() => count() * 2, (double) => count(double / 2));
+// is short for
+const double = atom(createCouple([ () => count() * 2, (double) => count(double / 2) ]));
+```
+
+# Conclusion
+
+Perhaps you can see the power of the above primitives.
+Not only in what they do, but also in how they combine.
