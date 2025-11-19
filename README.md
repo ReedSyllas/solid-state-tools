@@ -58,6 +58,14 @@ const count: Asig<number> = asig(0);
 const count: Atom<Signal<number>> = atom(createSignal(0));
 ```
 
+The second parameter (optional) is the config object, which is simply forwarded to the `createSignal` call.
+
+```ts
+const list = asig([], { equals: false });
+// is short for
+const list = atom(createSignal([], { equals: false }));
+```
+
 ## Couples (`createCouple`)
 
 A signal can be summarized as a getter setter pair.
@@ -101,7 +109,7 @@ const [ double, setDouble ] = [
 ];
 ```
 
-With that, all of the statements below work exactly as expected.
+With that, the following statements work (as is expected of a setter):
 
 ```ts
 setDouble(10);              // double: 10, count: 5
@@ -109,9 +117,9 @@ setDouble(x => x + 1);      // double: 11, count: 5.5
 console.log(setDouble(20)); // Prints: 20
 ```
 
-But, wouldn't it be convenient if we could skip the crusty boilerplate?
+But, the crusty boilerplate to get it working is annoying as heck.
 
-**Enter the `createCouple` utility**
+**Enter the `createCouple` utility.**
 
 It accepts a getter and a co-setter and returns a signal.
 A co-setter is similar to a setter, except that it doesn't take a function nor does it return a value.
@@ -144,7 +152,7 @@ Much better, right?
 
 > [!NOTE]
 > The getter passed to `createCouple` is always [memoized](https://docs.solidjs.com/concepts/derived-values/memos).
-> This has the consequence that the getter is invoked immediately during creation of the couple.
+> This immediately invokes the getter, so keep that in mind.
 
 By the way! A `createCouple` call, like any expression that evaluates to a signal, can be converted into an atom so that the getter and setter are merged into one.
 
