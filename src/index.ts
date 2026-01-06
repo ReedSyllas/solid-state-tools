@@ -77,6 +77,13 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
  */
 export type Writer<T> = (value: T) => void;
 
+export interface CoupleOptions {
+	/**
+	 * @default true
+	 */
+	memoized: boolean,
+}
+
 /**
  * @description
  * Create a signal from a getter setter pair.
@@ -95,7 +102,7 @@ export type Writer<T> = (value: T) => void;
  * console.log(double(), count()); // 2 1
  * ```
  */
-export function createCouple<T>(getter: Accessor<T>, setter: Writer<T>): Signal<T> {
+export function createCouple<T>(getter: Accessor<T>, setter: Writer<T>, options?: CoupleOptions): Signal<T> {
 	if (isDev) {
 		// Assert that the input is valid.
 		// For production, these checks are skipped for performance.
@@ -107,7 +114,7 @@ export function createCouple<T>(getter: Accessor<T>, setter: Writer<T>): Signal<
 			throw new Error(`expected setter to be a function, but got ${typeof setter}`);
 		}
 	}
-	const get = createMemo(getter);
+	const get = options?.memoized === false ? getter : createMemo(getter);
 	const set = ((source) => {
 		const value = (typeof source === "function") ? (source as Function)(untrack(get)) : source;
 		setter(value);
