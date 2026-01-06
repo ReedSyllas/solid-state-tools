@@ -173,6 +173,6 @@ const double = atom(createCouple(() => count() * 2, (double) => count(double / 2
 # Conclusion
 
 Perhaps you can see the power of the above primitives.
-Not only in what they do, but also in how they combine.
+Not just what they do individually, but how they work together.
 
-More utilities for this library are in the works and will be coming soon.
+More utilities for this library are in the works and are coming soon.
