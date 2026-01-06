@@ -159,7 +159,7 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
 
 /**
  * @description
- * Create an atomic cosignal pair. Short for `atom(createCouple(...))`.
+ * Create an atomic getter setter pair. Short for `atom(createCouple(...))`.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-couples-apair)
  * 
  * @see {@link Accessor} (input), {@link Writer} (input), {@link Asig} (output)
