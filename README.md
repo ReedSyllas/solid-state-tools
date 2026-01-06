@@ -31,12 +31,15 @@ const count: Atom<Signal<number>> = atom(createSignal(0));
 
 console.log(count()); // 0
 
+// Sets count to 100.
 count(100);
 console.log(count()); // 100
 
+// Sets count to its current value plus one.
 count(count() + 1);
 console.log(count()); // 101
 
+// Sets count to its current value plus one (alternative syntax).
 count((c) => c + 1);
 console.log(count()); // 102
 ```
@@ -58,7 +61,7 @@ const count: Asig<number> = asig(0);
 const count: Atom<Signal<number>> = atom(createSignal(0));
 ```
 
-The second parameter (optional) is the config object, which is simply forwarded to the `createSignal` call.
+The second parameter (optional) is the config object, which is simply forwarded to [createSignal's options](https://docs.solidjs.com/reference/basic-reactivity/create-signal#options).
 
 ```ts
 const list = asig([], { equals: false });
@@ -81,8 +84,8 @@ Why?
 	```ts
 	const [ _count, setCount ] = createSignal(0);
 
-	console.log(setCount(10));         // Prints: 10
-	console.log(setCount(x => x + 5)); // Prints: 15
+	console.log(setCount(10));         // 10
+	console.log(setCount(x => x + 5)); // 15
 	```
 
 All of this is to say that creating custom signal pairs can be tedious.
@@ -114,22 +117,23 @@ With that, the following statements work (as is expected of a setter):
 ```ts
 setDouble(10);              // double: 10, count: 5
 setDouble(x => x + 1);      // double: 11, count: 5.5
-console.log(setDouble(20)); // Prints: 20
+console.log(setDouble(20)); // 20
 ```
 
 But, the crusty boilerplate to get it working is annoying as heck.
 
 **Enter the `createCouple` utility.**
 
-It accepts a getter and a co-setter and returns a signal.
-A co-setter is similar to a setter, except that it doesn't take a function nor does it return a value.
-Basically, it's the previous example without the boilerplate.
+It accepts a getter and a writer and returns a signal.
+A writer is similar to a setter, except that it doesn't accept a function as input nor does it return a value.
+Basically, it's the setter of the previous example without all the boilerplate.
 See it in action:
 
 ```ts
 const [ count, setCount ] = createSignal(0);
 
 const [ double, setDouble ] = createCouple(
+	// The provided getter is automatically memoized.
 	() => count() * 2,
 	
 	(newValue) => {
@@ -140,7 +144,7 @@ const [ double, setDouble ] = createCouple(
 	},
 );
 
-// Yet, we can still pass a function in.
+// Yet, we can still inject a function.
 setDouble(x => x + 2);
 console.log(double(), count()); // 2 1
 
@@ -148,16 +152,25 @@ console.log(double(), count()); // 2 1
 console.log(setDouble(10), count()); // 10 5
 ```
 
+It can be succinctly rewritten into this:
+
+```ts
+const [ double, setDouble ] = createCouple(() => count() * 2, (x) => setCount(x / 2));
+```
+
 Much better, right?
 
 > [!NOTE]
-> The getter passed to `createCouple` is always [memoized](https://docs.solidjs.com/concepts/derived-values/memos).
-> This immediately invokes the getter, so keep that in mind.
+> The getter passed to `createCouple` is [memoized](https://docs.solidjs.com/concepts/derived-values/memos) unless otherwise set in the `options`.
+> Memoization immediately invokes the getter, so keep that in mind because it can cause undesirable side-effects.
 
-By the way! A `createCouple` call, like any expression that evaluates to a signal, can be converted into an atom so that the getter and setter are merged into one.
+By the way! The `createCouple` output, like any signal, can be converted into an atom so that the getter and setter are merged together. See [atom](#atoms-atom) for details.
 
 ```ts
-const double = atom(createCouple(/* ... */));
+const double = atom(createCouple(() => count() * 2, (x) => setCount(x / 2)));
+
+double()   // read
+double(10) // write
 ```
 
 ## Atomic couples (`apair`)
