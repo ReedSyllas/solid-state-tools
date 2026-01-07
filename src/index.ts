@@ -91,7 +91,7 @@ export interface CoupleOptions {
  * 
  * **The getter is immediately invoked for memoization.**
  * 
- * @see {@link Accessor} (input), {@link Writer} (input), {@link Signal} (output)
+ * @see {@link Accessor} (input), {@link Writer} (input), {@link CoupleOptions} (input), {@link Signal} (output)
  * 
  * @example
  * ```
@@ -162,7 +162,7 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
  * Create an atomic getter setter pair. Short for `atom(createCouple(...))`.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-couples-apair)
  * 
- * @see {@link Accessor} (input), {@link Writer} (input), {@link Asig} (output)
+ * @see {@link Accessor} (input), {@link Writer} (input), {@link CoupleOptions} (input), {@link Asig} (output)
  * 
  * @example
  * ```
@@ -176,6 +176,6 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
  * console.log(count(), double()); // 50 100
  * ```
  */
-export function apair<T>(getter: Accessor<T>, setter: Writer<T>): Asig<T> {
-	return atom(createCouple(getter, setter));
+export function apair<T>(getter: Accessor<T>, setter: Writer<T>, options?: CoupleOptions): Asig<T> {
+	return atom(createCouple(getter, setter, options));
 }
