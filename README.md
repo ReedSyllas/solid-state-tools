@@ -10,15 +10,12 @@ The package is small and only has a peer dependency of Solid JS.
 
 # Usage
 
-This library introduces some new primitives:
-
-1. [atom](#atoms-atom)
-2. [createCouple](#couples-createcouple)
-
-And, a few shorthand functions that combine these primitives and those from Solid JS together.
-
-1. [asig](#atomic-signals-asig)
-2. [apair](#atomic-couples-apair)
+| Utility                         | Summary                                          |
+| ------------------------------- | ------------------------------------------------ |
+| [atom](#atoms-atom)             | Combines a getter setter pair into one function. |
+| [createPair](#pairs-createpair) | Creates a signal from a getter setter pair.      |
+| [asig](#atomic-signals-asig)    | Shorthand for `atom(createSignal(...))`          |
+| [apair](#atomic-pairs-apair)    | Shorthand for `atom(createCouple(...))`          |
 
 Read the sections below for a breakdown of each utility.
 
@@ -69,7 +66,7 @@ const list = asig([], { equals: false });
 const list = atom(createSignal([], { equals: false }));
 ```
 
-## Couples (`createCouple`)
+## Pairs (`createPair`)
 
 A signal can be summarized as a getter setter pair.
 However, the setter of a Solid JS signal is more complex than it appears at first glance.
@@ -122,7 +119,7 @@ console.log(setDouble(20)); // 20
 
 But, the crusty boilerplate to get it working is annoying as heck.
 
-**Enter the `createCouple` utility.**
+**Enter the `createPair` utility.**
 
 It accepts a getter and a writer and returns a signal.
 A writer is similar to a setter, except that it doesn't accept a function as input nor does it return a value.
@@ -132,7 +129,7 @@ See it in action:
 ```ts
 const [ count, setCount ] = createSignal(0);
 
-const [ double, setDouble ] = createCouple(
+const [ double, setDouble ] = createPair(
 	// The provided getter is automatically memoized.
 	() => count() * 2,
 	
@@ -155,32 +152,32 @@ console.log(setDouble(10), count()); // 10 5
 It can be succinctly rewritten into this:
 
 ```ts
-const [ double, setDouble ] = createCouple(() => count() * 2, (x) => setCount(x / 2));
+const [ double, setDouble ] = createPair(() => count() * 2, (x) => setCount(x / 2));
 ```
 
 Much better, right?
 
 > [!NOTE]
-> The getter passed to `createCouple` is [memoized](https://docs.solidjs.com/concepts/derived-values/memos) unless otherwise set in the `options`.
+> The getter passed to `createPair` is [memoized](https://docs.solidjs.com/concepts/derived-values/memos) unless otherwise set in the `options`.
 > Memoization immediately invokes the getter, so keep that in mind because it can cause undesirable side-effects.
 
-By the way! The `createCouple` output, like any signal, can be converted into an atom so that the getter and setter are merged together. See [atom](#atoms-atom) for details.
+By the way! The `createPair` output, like any signal, can be converted into an atom so that the getter and setter are merged together. See [atom](#atoms-atom) for details.
 
 ```ts
-const double = atom(createCouple(() => count() * 2, (x) => setCount(x / 2)));
+const double = atom(createPair(() => count() * 2, (x) => setCount(x / 2)));
 
 double()   // read
 double(10) // write
 ```
 
-## Atomic couples (`apair`)
+## Atomic pairs (`apair`)
 
-Similar to [atomic signals](#atomic-signals-asig), wrapping a `createCouple` call with `atom` is a common enough pattern to warrant a shorthand: `apair`.
+Similar to [atomic signals](#atomic-signals-asig), wrapping a `createPair` call with `atom` is a common enough pattern to warrant a shorthand: `apair`.
 
 ```ts
 const double = apair(() => count() * 2, (double) => count(double / 2));
 // is short for
-const double = atom(createCouple(() => count() * 2, (double) => count(double / 2)));
+const double = atom(createPair(() => count() * 2, (double) => count(double / 2)));
 ```
 
 # Conclusion

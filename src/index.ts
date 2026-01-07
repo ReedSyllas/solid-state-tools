@@ -73,11 +73,11 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
  * @description
  * Similar to a signal setter, except it doesn't accept a mapping function nor return a result.
  * 
- * @see {@link createCouple} (for example usage)
+ * @see {@link createPair} (for example usage)
  */
 export type Writer<T> = (value: T) => void;
 
-export interface CoupleOptions {
+export interface PairOptions {
 	/**
 	 * @default true
 	 */
@@ -87,22 +87,22 @@ export interface CoupleOptions {
 /**
  * @description
  * Create a signal from a getter setter pair.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#couples-createcouple)
+ * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#pairs-createpair)
  * 
  * **The getter is immediately invoked for memoization.**
  * 
- * @see {@link Accessor} (input), {@link Writer} (input), {@link CoupleOptions} (input), {@link Signal} (output)
+ * @see {@link Accessor} (input), {@link Writer} (input), {@link PairOptions} (input), {@link Signal} (output)
  * 
  * @example
  * ```
  * const [ count, setCount ] = createSignal(0);
- * const [ double, setDouble ] = createCouple(() => count() * 2, (x) => setCount(x / 2));
+ * const [ double, setDouble ] = createPair(() => count() * 2, (x) => setCount(x / 2));
  * 
  * setDouble(x => x + 2);
  * console.log(double(), count()); // 2 1
  * ```
  */
-export function createCouple<T>(getter: Accessor<T>, setter: Writer<T>, options?: CoupleOptions): Signal<T> {
+export function createPair<T>(getter: Accessor<T>, setter: Writer<T>, options?: PairOptions): Signal<T> {
 	if (isDev) {
 		// Assert that the input is valid.
 		// For production, these checks are skipped for performance.
@@ -159,10 +159,10 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
 
 /**
  * @description
- * Create an atomic getter setter pair. Short for `atom(createCouple(...))`.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-couples-apair)
+ * Create an atomic getter setter pair. Short for `atom(createPair(...))`.
+ * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-pairs-apair)
  * 
- * @see {@link Accessor} (input), {@link Writer} (input), {@link CoupleOptions} (input), {@link Asig} (output)
+ * @see {@link Accessor} (input), {@link Writer} (input), {@link PairOptions} (input), {@link Asig} (output)
  * 
  * @example
  * ```
@@ -176,6 +176,6 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
  * console.log(count(), double()); // 50 100
  * ```
  */
-export function apair<T>(getter: Accessor<T>, setter: Writer<T>, options?: CoupleOptions): Asig<T> {
-	return atom(createCouple(getter, setter, options));
+export function apair<T>(getter: Accessor<T>, setter: Writer<T>, options?: PairOptions): Asig<T> {
+	return atom(createPair(getter, setter, options));
 }
