@@ -1,23 +1,22 @@
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import dts from "vite-plugin-dts";
 import solid from "vite-plugin-solid";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
 	build: {
 		lib: {
 			entry: resolve(__dirname, "lib/index.ts"),
-			name: "SolidStateTools",
 			fileName: "index",
+			formats: [ "es" ],
+			name: "SolidStateTools",
 		},
 		rollupOptions: {
-			external: [ "solid-js" ],
+			external: [ "solid-js", "solid-js/web" ],
 			output: {
 				globals: {
-					"solid-js": "Solid",
+					"solid-js": "solid",
+					"solid-js/web": "solidWeb",
 				},
 			},
 		},
@@ -25,7 +24,9 @@ export default defineConfig({
 	plugins: [
 		solid(),
 		dts({
-			insertTypesEntry: true,
+			entryRoot: "lib",
+			outDir: "dist/types",
+			include: [ "lib" ],
 		}),
 	],
 });
