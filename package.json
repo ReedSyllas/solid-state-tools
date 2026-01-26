@@ -28,13 +28,16 @@
 		"dist"
 	],
 	"scripts": {
-		"build": "tsc",
+		"build": "vite build",
 		"prepublishOnly": "pnpm run build"
 	},
-	"packageManager": "pnpm@10.21.0",
+	"packageManager": "pnpm@10.28.2",
 	"devDependencies": {
 		"@types/node": "^24.10.0",
-		"typescript": "^5.9.3"
+		"typescript": "^5.9.3",
+		"vite": "^7.3.1",
+		"vite-plugin-dts": "^4.5.4",
+		"vite-plugin-solid": "^2.11.10"
 	},
 	"peerDependencies": {
 		"solid-js": "^1.9.10"

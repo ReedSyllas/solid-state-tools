@@ -6,7 +6,7 @@ Solid State Tools is a collection of simple utilities for managing [Solid JS](ht
 
 All features are intended to compliment Solid JS's existing state system, building upon the existing foundation.
 
-The package is small and only has a peer dependency of Solid JS.
+The package is small and the only production dependency is Solid JS.
 
 # Usage
 
