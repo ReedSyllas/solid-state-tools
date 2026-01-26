@@ -138,6 +138,17 @@ export function createPair<T>(getter: Accessor<T>, setter: Writer<T>, options?: 
  * ```
  */
 export function createBlinker(subject: Accessor<unknown>, duration: number = 500): Accessor<boolean> {
+	if (isDev) {
+		// Assert that the input is valid.
+		// For production, these checks are skipped for performance.
+		
+		if (typeof subject !== "function") {
+			throw new Error(`expected subject to be a function, but got ${typeof subject}`);
+		}
+		if (typeof duration !== "number") {
+			throw new Error(`expected duration to be a number, but got ${typeof duration}`);
+		}
+	}
 	const [ flagged, setFlagged ] = createSignal(false);
 	let timeout: ReturnType<typeof setTimeout> | undefined;
 	createComputed(on(subject, () => {
