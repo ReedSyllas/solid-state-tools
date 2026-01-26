@@ -8,7 +8,10 @@ import { isDev } from "solid-js/web";
  * 
  * @see {@link Atom}, {@link atom}
  */
-export type SignalLike = readonly [ () => any, (...args: any) => any ];
+export type SignalLike = readonly [
+	getter: () => any,
+	setter: (...args: any) => any,
+];
 
 /**
  * An {@link Atom} is a polymorphic function that calls one of two
@@ -51,17 +54,21 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
 		// For production, these checks are skipped for performance.
 		
 		if (!Array.isArray(signal)) {
-			throw new Error(`expected a getter setter pair as an array, but got ${typeof signal}`);
+			throw new Error(`expected signal to be an array, but got ${typeof signal}`);
 		}
 		if (typeof signal[0] !== "function") {
-			throw new Error(`expected a getter function, but got ${typeof signal[0]}`);
+			throw new Error(`expected getter to be a function, but got ${typeof signal[0]}`);
 		}
 		if (typeof signal[1] !== "function") {
-			throw new Error(`expected a setter function, but got ${typeof signal[1]}`);
+			throw new Error(`expected setter to be a function, but got ${typeof signal[1]}`);
 		}
 	}
 	const [ getter, setter ] = signal;
-	return (...args: unknown[]) => (args.length === 0) ? getter() : setter(...args);
+	return Object.assign(
+		(...args: unknown[]) => (args.length === 0) ? getter() : setter(...args),
+		getter,
+		setter,
+	);
 }
 
 /**
