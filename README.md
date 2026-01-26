@@ -10,12 +10,13 @@ The package is small and the only production dependency is Solid JS.
 
 # Usage
 
-| Utility                         | Summary                                          |
-| ------------------------------- | ------------------------------------------------ |
-| [atom](#atoms-atom)             | Combines a getter setter pair into one function. |
-| [createPair](#pairs-createpair) | Creates a signal from a getter setter pair.      |
-| [asig](#atomic-signals-asig)    | Shorthand for `atom(createSignal(...))`          |
-| [apair](#atomic-pairs-apair)    | Shorthand for `atom(createCouple(...))`          |
+| Utility                            | Summary                                           |
+| ---------------------------------- | ------------------------------------------------- |
+| [atom](#atoms-atom)                | Combines a getter setter pair into one function.  |
+| [createPair](#pairs-createpair)    | Creates a signal from a getter setter pair.       |
+| [asig](#atomic-signals-asig)       | Shorthand for `atom(createSignal(...))`           |
+| [apair](#atomic-pairs-apair)       | Shorthand for `atom(createCouple(...))`           |
+| [createBlinker](#pairs-createpair) | Creates a reactive boolean for flashing elements. |
 
 Read the sections below for a breakdown of each utility.
 
@@ -180,9 +181,25 @@ const double = apair(() => count() * 2, (double) => count(double / 2));
 const double = atom(createPair(() => count() * 2, (double) => count(double / 2)));
 ```
 
+## Blinkers (`createBlinker`)
+
+A blinker is a reactive boolean that tracks some state. When the state updates, the blinker temporarily flips to true.
+
+This is primarily useful for flashing an element on the page when a signal changes to draw the user's attention to it.
+
+```tsx
+const [ count, setCount ] = createSignal(0);
+const countBlinked = createBlinker(count, 200);
+
+// Flashes orange for 200ms when count changes.
+<span style={ { "color": countBlinked() ? "orange" : undefined } }>
+	{ count() }
+</span>
+```
+
 # Conclusion
 
 Perhaps you can see the power of the above primitives.
-Not just what they do individually, but how they work together.
+Specifically, how they work together to reduce boilerplate.
 
 More utilities for this library are in the works and are coming soon.
