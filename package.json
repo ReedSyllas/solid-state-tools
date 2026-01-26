@@ -28,6 +28,7 @@
 		"dist"
 	],
 	"scripts": {
+		"dev": "vite dev",
 		"build": "vite build",
 		"prepublishOnly": "pnpm run build"
 	},

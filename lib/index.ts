@@ -1,8 +1,6 @@
 import { createMemo, createSignal, untrack, type Accessor, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
 
-// UTILITIES
-
 /**
  * @description
  * Any tuple of two functions where the first accepts no arguments and the second accepts any amount.
@@ -122,8 +120,6 @@ export function createPair<T>(getter: Accessor<T>, setter: Writer<T>, options?: 
 	}) as Setter<T>;
 	return [ get, set ] as const;
 }
-
-// SHORTHANDS
 
 /**
  * @description
