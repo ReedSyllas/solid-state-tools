@@ -1,8 +1,7 @@
-import { createMemo, createSignal, untrack, type Accessor, type Setter, type Signal, type SignalOptions } from "solid-js";
+import { createComputed, createMemo, createSignal, on, untrack, type Accessor, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
 
 /**
- * @description
  * Any tuple of two functions where the first accepts no arguments and the second accepts any amount.
  * 
  * Used as the source of an {@link Atom}.
@@ -12,7 +11,6 @@ import { isDev } from "solid-js/web";
 export type SignalLike = readonly [ () => any, (...args: any) => any ];
 
 /**
- * @description
  * An {@link Atom} is a polymorphic function that calls one of two
  *  functions depending on the number of arguments it has.
  * 
@@ -24,7 +22,6 @@ export type SignalLike = readonly [ () => any, (...args: any) => any ];
 export type Atom<T extends SignalLike = SignalLike> = T[0] & T[1];
 
 /**
- * @description
  * Combine a getter and setter function pair into one.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atoms-atom)
  * 
@@ -36,7 +33,7 @@ export type Atom<T extends SignalLike = SignalLike> = T[0] & T[1];
  * @see {@link SignalLike} (input), {@link Atom} (output)
  * 
  * @example
- * ```
+ * ```ts
  * const count: Atom<Signal<T>> = atom(createSignal(0));
  * 
  * // Read
@@ -68,7 +65,6 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
 }
 
 /**
- * @description
  * Similar to a signal setter, except it doesn't accept a mapping function nor return a result.
  * 
  * @see {@link createPair} (for example usage)
@@ -83,7 +79,6 @@ export interface PairOptions {
 }
 
 /**
- * @description
  * Create a signal from a getter setter pair.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#pairs-createpair)
  * 
@@ -92,7 +87,7 @@ export interface PairOptions {
  * @see {@link Accessor} (input), {@link Writer} (input), {@link PairOptions} (input), {@link Signal} (output)
  * 
  * @example
- * ```
+ * ```ts
  * const [ count, setCount ] = createSignal(0);
  * const [ double, setDouble ] = createPair(() => count() * 2, (x) => setCount(x / 2));
  * 
@@ -122,7 +117,44 @@ export function createPair<T>(getter: Accessor<T>, setter: Writer<T>, options?: 
 }
 
 /**
- * @description
+ * Create a reactive boolean that temporarily flips to true when the subject changes value.
+ * 
+ * Useful for flashing an element when a signal changes value.
+ * Perhaps to draw the user's attention to it.
+ * 
+ * @param subject The subject to track for changes.
+ * @param duration The duration in milliseconds to "blink" before resetting to false. Default: 500.
+ * 
+ * @see {@link Accessor}
+ * 
+ * @example
+ * ```tsx
+ * const [ count, setCount ] = createSignal(0);
+ * const countBlinked = createBlinker(count, 200);
+ * 
+ * <span style={ { "color": countBlinked() ? "orange" : undefined } }>
+ *   { count() }
+ * </span>
+ * ```
+ */
+export function createBlinker(subject: Accessor<unknown>, duration: number = 500): Accessor<boolean> {
+	const [ flagged, setFlagged ] = createSignal(false);
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	createComputed(on(subject, () => {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		} else {
+			setFlagged(true);
+		}
+		timeout = setTimeout(() => {
+			setFlagged(false);
+			timeout = undefined;
+		}, duration);
+	}));
+	return flagged;
+}
+
+/**
  * An atomic signal. A signal where the getter and setter are combined into one function.
  * 
  * @see {@link Atom}, {@link asig} (constructor)
@@ -130,14 +162,13 @@ export function createPair<T>(getter: Accessor<T>, setter: Writer<T>, options?: 
 export type Asig<T> = Atom<Signal<T>>;
 
 /**
- * @description
  * Create an atomic signal. Short for `atom(createSignal(...))`.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-signals-asig)
  * 
  * @see {@link Asig} (output), {@link Atom}, {@link atom}
  * 
  * @example
- * ```
+ * ```ts
  * const count = asig(0);
  * 
  * count(10);
@@ -154,14 +185,13 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
 }
 
 /**
- * @description
  * Create an atomic getter setter pair. Short for `atom(createPair(...))`.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-pairs-apair)
  * 
  * @see {@link Accessor} (input), {@link Writer} (input), {@link PairOptions} (input), {@link Asig} (output)
  * 
  * @example
- * ```
+ * ```ts
  * const count = asig(0);
  * const double = apair(() => count() * 2, (x) => count(x / 2));
  * 

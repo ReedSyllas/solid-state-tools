@@ -1,8 +1,11 @@
-import { apair, asig } from "../lib/index.ts";
+import { apair, asig, createBlinker } from "../lib/index.ts";
 
 export function Counter() {
 	const count = asig(0);
+	const countBlinked = createBlinker(count, 200);
+	
 	const double = apair(() => count() * 2, (x) => count(x / 2));
+	const doubleBlinked = createBlinker(count, 200);
 	
 	return (
 		<div>
@@ -16,7 +19,9 @@ export function Counter() {
 			
 			<p>
 				{"Count: "}
-				{ count() }
+				<span style={ { "background-color": countBlinked() ? "orange" : undefined } }>
+					{ count() }
+				</span>
 			</p>
 			<button onClick={() => void count(c => c + 1)}>
 				{"Increment count"}
@@ -30,7 +35,9 @@ export function Counter() {
 			
 			<p>
 				{"Double: "}
-				{ double() }
+				<span style={ { "background-color": doubleBlinked() ? "orange" : undefined } }>
+					{ double() }
+				</span>
 			</p>
 			<button onClick={() => void double(c => c + 1)}>
 				{"Increment double"}
