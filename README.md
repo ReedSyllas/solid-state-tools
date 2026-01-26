@@ -10,13 +10,13 @@ The package is small and the only production dependency is Solid JS.
 
 # Usage
 
-| Utility                            | Summary                                           |
-| ---------------------------------- | ------------------------------------------------- |
-| [atom](#atoms-atom)                | Combines a getter setter pair into one function.  |
-| [createPair](#pairs-createpair)    | Creates a signal from a getter setter pair.       |
-| [asig](#atomic-signals-asig)       | Shorthand for `atom(createSignal(...))`           |
-| [apair](#atomic-pairs-apair)       | Shorthand for `atom(createCouple(...))`           |
-| [createBlinker](#pairs-createpair) | Creates a reactive boolean for flashing elements. |
+| Utility                                  | Summary                                           |
+| ---------------------------------------- | ------------------------------------------------- |
+| [atom](#atoms-atom)                      | Combines a getter setter pair into one function.  |
+| [createPair](#pairs-createpair)          | Creates a signal from a getter setter pair.       |
+| [asig](#atomic-signals-asig)             | Shorthand for `atom(createSignal(...))`           |
+| [apair](#atomic-pairs-apair)             | Shorthand for `atom(createCouple(...))`           |
+| [createBlinker](#blinkers-createblinker) | Creates a reactive boolean for flashing elements. |
 
 Read the sections below for a breakdown of each utility.
 
