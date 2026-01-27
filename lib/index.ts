@@ -252,12 +252,14 @@ export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOp
  * 
  * @see {@link Accessor}, {@link Winch}, {@link createFetched} (constructor)
  */
-export type Fetched<T> = Accessor<T> & {
-	state: Accessor<FetchedState>,
-	is: (key: FetchedState) => boolean,
+export type Fetched<T> = Accessor<T> & FetchedMembers<T>;
+
+export interface FetchedMembers<T> {
 	error: Accessor<unknown>,
 	latest: Accessor<T>,
-};
+	state: Accessor<FetchedState>,
+	is: (key: FetchedState) => boolean,
+}
 
 /**
  * Represents the current state of a fetched signal.
@@ -282,10 +284,10 @@ export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "
 export function createFetched<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Fetched<T>;
 export function createFetched<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined>;
 export function createFetched<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined> {
-	const [ state, setState ] = createSignal<FetchedState>("unresolved");
-	const is = createSelector(state);
 	const [ error, setError ] = createSignal<unknown>();
 	const [ latest, setLatest ] = createSignal(options?.initial);
+	const [ state, setState ] = createSignal<FetchedState>("unresolved");
+	const is = createSelector(state);
 	let hasLatest = false;
 	const fetched = createSpool<T | undefined>((update, value) => {
 		createComputed(() => {
@@ -314,10 +316,10 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Spool
 		});
 	}, options);
 	return Object.assign(fetched, {
-		state,
-		is,
 		error,
 		latest,
+		state,
+		is,
 	});
 }
 
@@ -333,7 +335,7 @@ export type QuantumAccessor<T> = Accessor<T>;
  * Thus, {@link createSubscription} and {@link derive} replace most situations where {@link quantum} would be invoked directly.
  * 
  * Note that quantum accessors count listeners ambiguously.
- * Thus, some primitives must be substituted with a quantum compatible one to preserve the 'quantum' behavior.
+ * Thus, some primitives must be substituted with a quantum-compatible one to preserve the 'quantum' behavior.
  * Using a quantum accessor in these primitives (e.g. {@link createMemo}) is not _wrong_, but it may have unintended side-effects.
  * Use {@link derive} in place of {@link createMemo} for quantum accessors.
  * 
@@ -387,7 +389,22 @@ export function quantum<T>(source: Accessor<T>, track: () => () => void): Quantu
 	};
 }
 
-export function derive<T>(source: Accessor<T>, options?: SignalOptions<T>): QuantumAccessor<T> {
+/**
+ * Derive a new quantum accessor from an existing one while preserving the quantum behavior.
+ * 
+ * Essentially, this is a quantum-compatible version of {@link createMemo}.
+ * 
+ * This provides no advantage over {@link createMemo} for traditional accessors.
+ * 
+ * @see {@link quantum}, {@link QuantumAccessor}
+ * 
+ * @example
+ * ```ts
+ * const count: QuantumAccessor<number> = ...;
+ * const double = derive(() => count() * 2);
+ * ```
+ */
+export function derive<T>(source: QuantumAccessor<T>, options?: SignalOptions<T>): QuantumAccessor<T> {
 	const [ value, setValue ] = createSignal(untrack(source), options);
 	return quantum(value, () => createRoot((dispose) => {
 		createComputed(() => void setValue(source));
@@ -395,6 +412,11 @@ export function derive<T>(source: Accessor<T>, options?: SignalOptions<T>): Quan
 	}));
 }
 
+/**
+ * Handler for a subscription.
+ * 
+ * @see {@link Subscription}, {@link createSubscription}
+ */
 export type Subscribable<T, Initial extends T | undefined> = {
 	get: () => Promise<T>,
 	set: (value: T) => Promise<void>,
@@ -403,11 +425,13 @@ export type Subscribable<T, Initial extends T | undefined> = {
 };
 
 /**
- * A set of state driven by a remote.
+ * A state driven by a remote subscription.
+ * 
+ * @see {@link createSubscription} (constructor), {@link QuantumAccessor} (component type)
  */
-export type Subscription<T> = QuantumAccessor<T> & Setter<T> & SubscribableMembers<T>;
+export type Subscription<T> = QuantumAccessor<T> & Setter<T> & SubscriptionMembers<T>;
 
-export type SubscribableMembers<T> = {
+export type SubscriptionMembers<T> = {
 	/**
 	 * The last known remote value.
 	 * 
@@ -432,6 +456,11 @@ export type SubscribableMembers<T> = {
 	detached: Accessor<boolean>,
 };
 
+/**
+ * Options for creation of a subscription.
+ * 
+ * @see {@link createSubscription}, {@link Subscription}
+ */
 export interface SubscriptionOptions<T> {
 	initial?: T,
 }
@@ -468,7 +497,7 @@ export function createSubscription<T>(handler: Subscribable<T, T | undefined>, o
 			return setLocal(...args);
 		},
 	]);
-	const members: SubscribableMembers<T> = {
+	const members: SubscriptionMembers<T> = {
 		async pull() {
 			const value = await untrack(handler.get);
 			return updateFromRemote(value);
