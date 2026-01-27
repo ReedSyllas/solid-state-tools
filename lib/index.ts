@@ -188,38 +188,38 @@ export type Update<T> = (value: T) => void;
 export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
 
 /**
- * Options for creation of a wound signal.
+ * Options for creation of a spool signal.
  * 
- * @see {@link createWound}
+ * @see {@link createSpool}
  */
-export interface WoundOptions<T> {
+export interface SpoolOptions<T> {
 	/**
-	 * The initial value of the wound signal.
+	 * The initial value of the spool signal.
 	 * @default undefined
 	 */
 	initial?: T,
 	/**
-	 * If set to true, the winch will not be invoked until the wound signal is read for the first time.
+	 * If set to true, the winch will not be invoked until the spool signal is read for the first time.
 	 * @default false
 	 */
 	late?: boolean,
 }
 
 /**
- * Create a wound signal from a winch.
+ * Create a signal from a winch.
  * 
  * This is essentially an alternative way of writing a signal declaration.
  * 
- * Note that the winch function is not tracked and therefore does not automatically rerun when state changes.
+ * Note that the winch is not tracked and therefore does not automatically rerun when state changes.
  * This behavior can be implemented in the winch function itself, if desired.
  * Use {@link createFetched} for a reactive version.
  * 
- * @see {@link Winch} (input), {@link WoundOptions} (input), {@link Accessor} (output)
+ * @see {@link Winch} (input), {@link SpoolOptions} (input), {@link Accessor} (output)
  * 
  * @example
  * ```tsx
  * // A timer that updates each second.
- * const time: Accessor<number> = createWound((setTime, curr) => {
+ * const time: Accessor<number> = createSpool((setTime, curr) => {
  *   // Start timer.
  *   const interval = setInterval(() => void setTime(curr() + 1), 1000);
  *   
@@ -234,11 +234,11 @@ export interface WoundOptions<T> {
  * </div>
  * ```
  */
-export function createWound<T>(winch: Winch<T, T>, options: WoundOptions<T> & { initial: T }): Accessor<T>;
-export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Accessor<T | undefined>;
-export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Accessor<T | undefined> {
-	const [ wound, setWound ] = createSignal(options?.initial);
-	const wind = () => winch((x) => setWound(() => x), wound);
+export function createSpool<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Accessor<T>;
+export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Accessor<T | undefined>;
+export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Accessor<T | undefined> {
+	const [ spool, setSpool ] = createSignal(options?.initial);
+	const wind = () => winch((x) => setSpool(() => x), spool);
 	if (options?.late) {
 		const owner = getOwner();
 		let init: (() => void) | undefined = () => {
@@ -247,11 +247,11 @@ export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOp
 		};
 		return () => {
 			init?.();
-			return wound();
+			return spool();
 		};
 	}
 	wind();
-	return wound;
+	return spool;
 }
 
 /**
@@ -284,17 +284,17 @@ export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "
  * If the winch is rerun, the old winch can no longer mutate the state.
  * This prevents race conditions where the old winch attempts to write _after_ the new winch resolved.
  * 
- * @see {@link Winch} (input), {@link WoundOptions} (input), {@link Fetched} (output)
+ * @see {@link Winch} (input), {@link SpoolOptions} (input), {@link Fetched} (output)
  */
-export function createFetched<T>(winch: Winch<T, T>, options: WoundOptions<T> & { initial: T }): Fetched<T>;
-export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Fetched<T | undefined>;
-export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Fetched<T | undefined> {
+export function createFetched<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Fetched<T>;
+export function createFetched<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined>;
+export function createFetched<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined> {
 	const [ state, setState ] = createSignal<FetchedState>("unresolved");
 	const is = createSelector(state);
 	const [ error, setError ] = createSignal<unknown>();
 	const [ latest, setLatest ] = createSignal(options?.initial);
 	let hasLatest = false;
-	const fetched = createWound<T | undefined>((update, value) => {
+	const fetched = createSpool<T | undefined>((update, value) => {
 		createComputed(() => {
 			let invalided = false;
 			onCleanup(() => {
@@ -326,6 +326,12 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Wound
 		error,
 		latest,
 	});
+}
+
+export type Subscribable<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => () => void;
+
+export function createSubscribable<T>(fn: Subscribable<T, T | undefined>) {
+	
 }
 
 /**

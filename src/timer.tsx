@@ -1,8 +1,8 @@
 import { onCleanup } from "solid-js";
-import { createWound } from "../lib/index.ts";
+import { createSpool } from "../lib/index.ts";
 
 export function Timer() {
-	const time = createWound((setTime, prev) => {
+	const time = createSpool((setTime, prev) => {
 		// Start timer.
 		const interval = setInterval(() => void setTime(prev() + 1), 1000);
 		
