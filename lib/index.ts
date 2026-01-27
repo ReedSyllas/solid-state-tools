@@ -1,5 +1,12 @@
-import { batch, createComputed, createMemo, createSelector, createSignal, getOwner, on, onCleanup, runWithOwner, untrack, type Accessor, type Resource, type Setter, type Signal, type SignalOptions } from "solid-js";
+import { batch, createComputed, createMemo, createRoot, createSelector, createSignal, getListener, getOwner, on, onCleanup, runWithOwner, untrack, type Accessor, type Resource, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
+
+/**
+ * A function that updates a state to the given value.
+ * 
+ * @see {@link Setter} (related type)
+ */
+export type Update<T> = (value: T) => void;
 
 /**
  * Any tuple of two functions where the first accepts no arguments and the second accepts any amount.
@@ -71,13 +78,6 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
 	);
 }
 
-/**
- * Similar to a signal setter, except it doesn't accept a mapping function nor return a result.
- * 
- * @see {@link createPair} (for example usage), {@link Setter} (related type)
- */
-export type Writer<T> = (value: T) => void;
-
 export interface PairOptions {
 	/**
 	 * @default true
@@ -91,7 +91,7 @@ export interface PairOptions {
  * 
  * **The getter is immediately invoked for memoization.**
  * 
- * @see {@link Accessor} (input), {@link Writer} (input), {@link PairOptions} (input), {@link Signal} (output)
+ * @see {@link Accessor} (input), {@link Update} (input), {@link PairOptions} (input), {@link Signal} (output)
  * 
  * @example
  * ```ts
@@ -102,7 +102,7 @@ export interface PairOptions {
  * console.log(double(), count()); // 2 1
  * ```
  */
-export function createPair<T>(getter: Accessor<T>, setter: Writer<T>, options?: PairOptions): Signal<T> {
+export function createPair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairOptions): Signal<T> {
 	if (isDev) {
 		// Assert that the input is valid.
 		// For production, these checks are skipped for performance.
@@ -171,13 +171,6 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 	}, { defer: true }));
 	return flagged;
 }
-
-/**
- * A function that updates a state to the given value.
- * 
- * @see {@link Setter} (related type)
- */
-export type Update<T> = (value: T) => void;
 
 /**
  * A function that will periodically call the given update function as needed.
@@ -277,7 +270,7 @@ export type Fetched<T> = Accessor<T> & {
 export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "errored";
 
 /**
- * Create a signal driven by a tracked winch.
+ * Create a signal that's driven by a tracked winch.
  * 
  * The winch is tracked and therefore is rerun when its state changes.
  * 
@@ -328,10 +321,167 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Spool
 	});
 }
 
-export type Subscribable<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => () => void;
+export type QuantumAccessor<T> = Accessor<T>;
 
-export function createSubscribable<T>(fn: Subscribable<T, T | undefined>) {
-	
+/**
+ * Create a quantum accessor.
+ * 
+ * A quantum accessor counts its listeners and executes `track` if it is used at least once.
+ * When it is no longer used, `track`'s disposal function is invoked.
+ * 
+ * Quantum accessors have standalone utility, but their primary purpose was to create and destroy subscriptions on the fly.
+ * Thus, {@link createSubscription} and {@link derive} replace most situations where {@link quantum} would be invoked directly.
+ * 
+ * Note that quantum accessors count listeners ambiguously.
+ * Thus, some primitives must be substituted with a quantum compatible one to preserve the 'quantum' behavior.
+ * Using a quantum accessor in these primitives (e.g. {@link createMemo}) is not _wrong_, but it may have unintended side-effects.
+ * Use {@link derive} in place of {@link createMemo} for quantum accessors.
+ * 
+ * Technically, {@link QuantumAccessor} is just an alias of {@link Accessor} and can be used anywhere {@link Accessor} is allowed.
+ * However, it is useful to mark it this way due to the special handling (mentioned above) that's sometimes needed.
+ * 
+ * @example
+ * ```ts
+ * const [ source ] = createSignal(0);
+ * const count = quantum(source, () => {
+ *   console.log("count is now observed");
+ *   return () => {
+ *     console.log("count is no longer observed");
+ *   };
+ * });
+ * 
+ * createRoot((dispose) => {
+ *   count(); // nothing happens because `createRoot` doesn't track signals
+ *   
+ *   createComputed(() => {
+ *     count(); // prints "count is now observed" because `createComputed` started tracking `count`
+ *     count(); // nothing happens because count is already tracked at least once
+ *   });
+ *   
+ *   dispose(); // prints "count is no longer observed" because the `createComputed` is destroyed and `count` isn't tracked by anything else
+ * });
+ * ```
+ */
+export function quantum<T>(source: Accessor<T>, track: () => () => void): QuantumAccessor<T> {
+	let counter = 0;
+	let dispose: (() => void) | undefined;
+	const count = () => {
+		if (counter === 0) {
+			dispose = untrack(track);
+		}
+		counter++;
+	};
+	const uncount = () => queueMicrotask(() => {
+		counter--;
+		if (counter === 0) {
+			dispose?.();
+			dispose = undefined;
+		}
+	});
+	return () => {
+		if (getListener()) {
+			count();
+			onCleanup(uncount);
+		}
+		return source();
+	};
+}
+
+export function derive<T>(source: Accessor<T>, options?: SignalOptions<T>): QuantumAccessor<T> {
+	const [ value, setValue ] = createSignal(untrack(source), options);
+	return quantum(value, () => createRoot((dispose) => {
+		createComputed(() => void setValue(source));
+		return dispose;
+	}));
+}
+
+export type Subscribable<T, Initial extends T | undefined> = {
+	get: () => Promise<T>,
+	set: (value: T) => Promise<void>,
+	sub: (update: Update<T>) => () => void,
+	reconcile?: (remote: T, local: Initial, cache: T | undefined) => T,
+};
+
+/**
+ * A set of state driven by a remote.
+ */
+export type Subscription<T> = Atom<[ QuantumAccessor<T>, Setter<T> ]> & SubscribableMembers<T>;
+
+export type SubscribableMembers<T> = {
+	/**
+	 * The last known remote value.
+	 * 
+	 * It changes when a new remote value is pushed or pulled to this subscribable.
+	 */
+	cache: Accessor<T | undefined>,
+	/**
+	 * Fetch the remote value and reconcile it with the current value (local) and cache.
+	 */
+	pull: () => Promise<T>,
+	/**
+	 * Push local to the remote.
+	 */
+	push: () => Promise<void>,
+	/**
+	 * True if subscribed to the remote.
+	 */
+	subscribed: Accessor<boolean>,
+	/**
+	 * True if the current value (local) is different from the last known remote value (cache).
+	 */
+	detached: Accessor<boolean>,
+};
+
+export interface SubscriptionOptions<T> {
+	initial?: T,
+}
+
+/**
+ * Create a new subscription from a subscribable (handler).
+ * 
+ * Quantum signals are used for dynamic subscription through observation.
+ */
+export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined> {
+	const [ local, setLocal ] = createSignal<T | undefined>(options?.initial);
+	let hasLocal = !!options?.initial;
+	const [ cache, setCache ] = createSignal<T | undefined>();
+	const [ subscribed, setSubscribed ] = createSignal(false);
+	const detached = createMemo(() => local() !== cache());
+	const updateFromRemote = (remote: T): T => batch(() => {
+		const reconciled = handler.reconcile ? handler.reconcile(remote, untrack(local), untrack(cache)) : remote;
+		hasLocal = true;
+		setLocal(() => reconciled);
+		setCache(() => reconciled);
+		return reconciled;
+	});
+	const fn: Asig<T | undefined> = atom([
+		quantum(local, () => {
+			const dispose = handler.sub(updateFromRemote);
+			setSubscribed(true);
+			return () => {
+				setSubscribed(false);
+				dispose();
+			};
+		}),
+		(...args: any) => {
+			hasLocal = true;
+			return setLocal(...args);
+		},
+	]);
+	const members: SubscribableMembers<T> = {
+		async pull() {
+			const value = await untrack(handler.get);
+			return updateFromRemote(value);
+		},
+		async push() {
+			if (!hasLocal) return;
+			await handler.set(untrack(local)!);
+		},
+		cache,
+		subscribed,
+		detached,
+	};
+	return Object.assign(fn, members);
 }
 
 /**
@@ -368,7 +518,7 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
  * Create an atomic getter setter pair. Short for `atom(createPair(...))`.
  * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-pairs-apair)
  * 
- * @see {@link Accessor} (input), {@link Writer} (input), {@link PairOptions} (input), {@link Asig} (output)
+ * @see {@link Accessor} (input), {@link Update} (input), {@link PairOptions} (input), {@link Asig} (output)
  * 
  * @example
  * ```ts
@@ -382,6 +532,6 @@ export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undef
  * console.log(count(), double()); // 50 100
  * ```
  */
-export function apair<T>(getter: Accessor<T>, setter: Writer<T>, options?: PairOptions): Asig<T> {
+export function apair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairOptions): Asig<T> {
 	return atom(createPair(getter, setter, options));
 }
