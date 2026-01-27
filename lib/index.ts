@@ -281,8 +281,8 @@ export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "
  * 
  * The winch is tracked and therefore is rerun when its state changes.
  * 
- * If the winch is rerun, the old winches can no longer mutate the state.
- * This prevents race conditions.
+ * If the winch is rerun, the old winch can no longer mutate the state.
+ * This prevents race conditions where the old winch attempts to write _after_ the new winch resolved.
  * 
  * @see {@link Winch} (input), {@link WoundOptions} (input), {@link Fetched} (output)
  */
