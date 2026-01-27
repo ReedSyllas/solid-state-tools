@@ -1,4 +1,4 @@
-import { createComputed, createMemo, createSignal, on, untrack, type Accessor, type Setter, type Signal, type SignalOptions } from "solid-js";
+import { batch, createComputed, createMemo, createSignal, getOwner, on, onCleanup, runWithOwner, untrack, type Accessor, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
 
 /**
@@ -74,7 +74,7 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
 /**
  * Similar to a signal setter, except it doesn't accept a mapping function nor return a result.
  * 
- * @see {@link createPair} (for example usage)
+ * @see {@link createPair} (for example usage), {@link Setter} (related type)
  */
 export type Writer<T> = (value: T) => void;
 
@@ -170,6 +170,66 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 		}, duration);
 	}));
 	return flagged;
+}
+
+export type Update<T> = (value: T) => void;
+
+export type Winch<T> = (update: Update<T>, value: Accessor<T | undefined>) => void;
+
+export interface WinchOptions<T> {
+	initial?: T,
+	late?: boolean,
+}
+
+export function createWound<T>(winch: Winch<T>, options?: WinchOptions<T>): Accessor<T | undefined> {
+	const [ wound, setWound ] = createSignal(options?.initial);
+	const wind = () => winch((x) => setWound(() => x), wound);
+	if (options?.late) {
+		const owner = getOwner();
+		let init: (() => void) | undefined = () => {
+			init = undefined;
+			runWithOwner(owner, wind);
+		};
+		return () => {
+			init?.();
+			return wound();
+		};
+	}
+	wind();
+	return wound;
+}
+
+export type Fetched<T> = {
+	(): T | undefined,
+	latest: Accessor<T | undefined>,
+	loading: Accessor<boolean>,
+};
+
+export function createFetched<T>(winch: Winch<T>, options?: WinchOptions<T>): Fetched<T> {
+	const [ loading, setLoading ] = createSignal(true);
+	const [ latest, setLatest ] = createSignal(options?.initial);
+	const fetched = createWound<T | undefined>((update, value) => {
+		createComputed(() => {
+			let invalided = false;
+			onCleanup(() => {
+				invalided = true;
+				update(undefined);
+			});
+			setLoading(true);
+			winch((x) => {
+				if (invalided) return;
+				batch(() => {
+					setLoading(false);
+					setLatest(() => x);
+					update(x);
+				});
+			}, value);
+		});
+	}, options);
+	return Object.assign(fetched, {
+		loading,
+		latest,
+	});
 }
 
 /**
