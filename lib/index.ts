@@ -168,7 +168,7 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 			setFlagged(false);
 			timeout = undefined;
 		}, duration);
-	}));
+	}, { defer: true }));
 	return flagged;
 }
 
