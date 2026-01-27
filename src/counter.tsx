@@ -23,14 +23,23 @@ export function Counter() {
 					{ count() }
 				</span>
 			</p>
+			<button onClick={() => void count(c => c / 2)}>
+				{"/2"}
+			</button>
+			<button onClick={() => void count(c => c - 2)}>
+				{"-2"}
+			</button>
+			<button onClick={() => void count(c => c - 1)}>
+				{"-1"}
+			</button>
 			<button onClick={() => void count(c => c + 1)}>
-				{"Add 1"}
+				{"+1"}
 			</button>
 			<button onClick={() => void count(c => c + 2)}>
-				{"Add 2"}
+				{"+2"}
 			</button>
 			<button onClick={() => void count(c => c * 2)}>
-				{"Double"}
+				{"x2"}
 			</button>
 			
 			<p>
@@ -39,14 +48,23 @@ export function Counter() {
 					{ double() }
 				</span>
 			</p>
+			<button onClick={() => void double(c => c / 2)}>
+				{"/2"}
+			</button>
+			<button onClick={() => void double(c => c - 2)}>
+				{"-2"}
+			</button>
+			<button onClick={() => void double(c => c - 1)}>
+				{"-1"}
+			</button>
 			<button onClick={() => void double(c => c + 1)}>
-				{"Add 1"}
+				{"+1"}
 			</button>
 			<button onClick={() => void double(c => c + 2)}>
-				{"Add 2"}
+				{"+2"}
 			</button>
 			<button onClick={() => void double(c => c * 2)}>
-				{"Double"}
+				{"x2"}
 			</button>
 		</div>
 	);
