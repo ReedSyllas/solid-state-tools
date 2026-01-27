@@ -1,4 +1,4 @@
-import { batch, createComputed, createMemo, createSignal, getOwner, on, onCleanup, runWithOwner, untrack, type Accessor, type Setter, type Signal, type SignalOptions } from "solid-js";
+import { batch, createComputed, createMemo, createSelector, createSignal, getOwner, on, onCleanup, runWithOwner, untrack, type Accessor, type Resource, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
 
 /**
@@ -176,14 +176,14 @@ export type Update<T> = (value: T) => void;
 
 export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
 
-export interface WinchOptions<T> {
+export interface WoundOptions<T> {
 	initial?: T,
 	late?: boolean,
 }
 
-export function createWound<T>(winch: Winch<T, T>, options: WinchOptions<T> & { initial: T }): Accessor<T>;
-export function createWound<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Accessor<T | undefined>;
-export function createWound<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Accessor<T | undefined> {
+export function createWound<T>(winch: Winch<T, T>, options: WoundOptions<T> & { initial: T }): Accessor<T>;
+export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Accessor<T | undefined>;
+export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Accessor<T | undefined> {
 	const [ wound, setWound ] = createSignal(options?.initial);
 	const wind = () => winch((x) => setWound(() => x), wound);
 	if (options?.late) {
@@ -201,17 +201,23 @@ export function createWound<T>(winch: Winch<T, T | undefined>, options?: WinchOp
 	return wound;
 }
 
-export type Fetched<T> = {
-	(): T,
+export type Fetched<T> = Accessor<T> & {
+	state: Accessor<FetchedState>,
+	is: (key: FetchedState) => boolean,
+	error: Accessor<unknown>,
 	latest: Accessor<T>,
-	loading: Accessor<boolean>,
 };
 
-export function createFetched<T>(winch: Winch<T, T>, options: WinchOptions<T> & { initial: T }): Fetched<T>;
-export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Fetched<T | undefined>;
-export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Fetched<T | undefined> {
-	const [ loading, setLoading ] = createSignal(true);
+export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "errored";
+
+export function createFetched<T>(winch: Winch<T, T>, options: WoundOptions<T> & { initial: T }): Fetched<T>;
+export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Fetched<T | undefined>;
+export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Fetched<T | undefined> {
+	const [ state, setState ] = createSignal<FetchedState>("unresolved");
+	const is = createSelector(state);
+	const [ error, setError ] = createSignal<unknown>();
 	const [ latest, setLatest ] = createSignal(options?.initial);
+	let hasLatest = false;
 	const fetched = createWound<T | undefined>((update, value) => {
 		createComputed(() => {
 			let invalided = false;
@@ -219,19 +225,29 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Winch
 				invalided = true;
 				update(undefined);
 			});
-			setLoading(true);
-			winch((x) => {
-				if (invalided) return;
+			setState(hasLatest ? "refreshing" : "pending");
+			try {
+				winch((x) => {
+					if (invalided) return;
+					batch(() => {
+						setState("ready");
+						setLatest(() => x);
+						hasLatest = true;
+						update(x);
+					});
+				}, value);
+			} catch (error) {
 				batch(() => {
-					setLoading(false);
-					setLatest(() => x);
-					update(x);
+					setState("errored");
+					setError(error);
 				});
-			}, value);
+			}
 		});
 	}, options);
 	return Object.assign(fetched, {
-		loading,
+		state,
+		is,
+		error,
 		latest,
 	});
 }
