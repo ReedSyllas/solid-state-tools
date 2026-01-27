@@ -174,14 +174,16 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 
 export type Update<T> = (value: T) => void;
 
-export type Winch<T> = (update: Update<T>, value: Accessor<T | undefined>) => void;
+export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
 
 export interface WinchOptions<T> {
 	initial?: T,
 	late?: boolean,
 }
 
-export function createWound<T>(winch: Winch<T>, options?: WinchOptions<T>): Accessor<T | undefined> {
+export function createWound<T>(winch: Winch<T, T>, options: WinchOptions<T> & { initial: T }): Accessor<T>;
+export function createWound<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Accessor<T | undefined>;
+export function createWound<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Accessor<T | undefined> {
 	const [ wound, setWound ] = createSignal(options?.initial);
 	const wind = () => winch((x) => setWound(() => x), wound);
 	if (options?.late) {
@@ -200,12 +202,14 @@ export function createWound<T>(winch: Winch<T>, options?: WinchOptions<T>): Acce
 }
 
 export type Fetched<T> = {
-	(): T | undefined,
-	latest: Accessor<T | undefined>,
+	(): T,
+	latest: Accessor<T>,
 	loading: Accessor<boolean>,
 };
 
-export function createFetched<T>(winch: Winch<T>, options?: WinchOptions<T>): Fetched<T> {
+export function createFetched<T>(winch: Winch<T, T>, options: WinchOptions<T> & { initial: T }): Fetched<T>;
+export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Fetched<T | undefined>;
+export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WinchOptions<T>): Fetched<T | undefined> {
 	const [ loading, setLoading ] = createSignal(true);
 	const [ latest, setLatest ] = createSignal(options?.initial);
 	const fetched = createWound<T | undefined>((update, value) => {
