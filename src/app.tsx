@@ -1,6 +1,7 @@
 import { ComplexSignalAtom } from "./complex-signal-atom.tsx";
 import { Counter } from "./counter.tsx";
 import { FetchedSignal } from "./fetched-signal.tsx";
+import { Timer } from "./timer.tsx";
 
 export default function App() {
 	return (
@@ -14,6 +15,8 @@ export default function App() {
 			<ComplexSignalAtom />
 			<hr />
 			<FetchedSignal />
+			<hr />
+			<Timer />
 		</>
 	);
 }

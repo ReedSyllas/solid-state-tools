@@ -16,7 +16,7 @@ export function FetchedSignal() {
 					postId("");
 				}}
 				style={{
-					"background-color": postId() === "" ? (post.loading() ? "orange" : "lime") : undefined
+					"background-color": postId() === "" ? (post.is("ready") ? "lime" : "orange") : undefined
 				}}
 			>
 				{ "?" }
@@ -28,16 +28,19 @@ export function FetchedSignal() {
 							postId(x.id);
 						}}
 						style={{
-							"background-color": postId() === x.id ? (post.loading() ? "orange" : "lime") : undefined
+							"background-color": postId() === x.id ? (post.is("ready") ? "lime" : "orange") : undefined
 						}}
 					>
 						{ x.id }
 					</button>
 				}
 			</For>
+			<span>
+				{ post.state() }
+			</span>
 			
 			<div>
-				<Show when={post.latest()} fallback={post.loading() ? "Loading..." : "No post found"}>
+				<Show when={post.latest()} fallback={post.is("ready") ? "No post found" : "Loading..."}>
 					{ (post) =>
 						<>
 							<p>

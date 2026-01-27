@@ -172,15 +172,68 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 	return flagged;
 }
 
+/**
+ * A function that updates a state to the given value.
+ * 
+ * @see {@link Setter} (related type)
+ */
 export type Update<T> = (value: T) => void;
 
+/**
+ * A function that will periodically call the given update function as needed.
+ * The current value (stateful) is also available to the consumer for incremental changes.
+ * 
+ * @see {@link Update}, {@link Accessor}
+ */
 export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
 
+/**
+ * Options for creation of a wound signal.
+ * 
+ * @see {@link createWound}
+ */
 export interface WoundOptions<T> {
+	/**
+	 * The initial value of the wound signal.
+	 * @default undefined
+	 */
 	initial?: T,
+	/**
+	 * If set to true, the winch will not be invoked until the wound signal is read for the first time.
+	 * @default false
+	 */
 	late?: boolean,
 }
 
+/**
+ * Create a wound signal from a winch.
+ * 
+ * This is essentially an alternative way of writing a signal declaration.
+ * 
+ * Note that the winch function is not tracked and therefore does not automatically rerun when state changes.
+ * This behavior can be implemented in the winch function itself, if desired.
+ * Use {@link createFetched} for a reactive version.
+ * 
+ * @see {@link Winch} (input), {@link WoundOptions} (input), {@link Accessor} (output)
+ * 
+ * @example
+ * ```tsx
+ * // A timer that updates each second.
+ * const time: Accessor<number> = createWound((setTime, curr) => {
+ *   // Start timer.
+ *   const interval = setInterval(() => void setTime(curr() + 1), 1000);
+ *   
+ *   // Dispose of timer when signal is destroyed.
+ *   onCleanup(() => void clearInterval(interval));
+ * }, {
+ *   initial: 0,
+ * });
+ * 
+ * <div>
+ *   { time() }
+ * </div>
+ * ```
+ */
 export function createWound<T>(winch: Winch<T, T>, options: WoundOptions<T> & { initial: T }): Accessor<T>;
 export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Accessor<T | undefined>;
 export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Accessor<T | undefined> {
@@ -201,6 +254,11 @@ export function createWound<T>(winch: Winch<T, T | undefined>, options?: WoundOp
 	return wound;
 }
 
+/**
+ * A synchronous reactive state driven by a winch.
+ * 
+ * @see {@link Accessor}, {@link Winch}, {@link createFetched} (constructor)
+ */
 export type Fetched<T> = Accessor<T> & {
 	state: Accessor<FetchedState>,
 	is: (key: FetchedState) => boolean,
@@ -208,8 +266,26 @@ export type Fetched<T> = Accessor<T> & {
 	latest: Accessor<T>,
 };
 
+/**
+ * Represents the current state of a fetched signal.
+ * 
+ * Its identical to {@link Resource.state} in meaning.
+ * See the [table of definitions](https://docs.solidjs.com/reference/basic-reactivity/create-resource#resource) for that.
+ * 
+ * @see {@link Fetched.state}
+ */
 export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "errored";
 
+/**
+ * Create a signal driven by a tracked winch.
+ * 
+ * The winch is tracked and therefore is rerun when its state changes.
+ * 
+ * If the winch is rerun, the old winches can no longer mutate the state.
+ * This prevents race conditions.
+ * 
+ * @see {@link Winch} (input), {@link WoundOptions} (input), {@link Fetched} (output)
+ */
 export function createFetched<T>(winch: Winch<T, T>, options: WoundOptions<T> & { initial: T }): Fetched<T>;
 export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Fetched<T | undefined>;
 export function createFetched<T>(winch: Winch<T, T | undefined>, options?: WoundOptions<T>): Fetched<T | undefined> {
