@@ -405,7 +405,7 @@ export type Subscribable<T, Initial extends T | undefined> = {
 /**
  * A set of state driven by a remote.
  */
-export type Subscription<T> = Atom<[ QuantumAccessor<T>, Setter<T> ]> & SubscribableMembers<T>;
+export type Subscription<T> = QuantumAccessor<T> & Setter<T> & SubscribableMembers<T>;
 
 export type SubscribableMembers<T> = {
 	/**
