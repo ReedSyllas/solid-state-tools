@@ -78,6 +78,36 @@ export function atom<const T extends SignalLike>(signal: T): Atom<T> {
 	);
 }
 
+/**
+ * An atomic signal. A signal where the getter and setter are combined into one function.
+ * 
+ * @see {@link Atom}, {@link asig} (constructor)
+ */
+export type Asig<T> = Atom<Signal<T>>;
+
+/**
+ * Create an atomic signal. Short for `atom(createSignal(...))`.
+ * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-signals-asig)
+ * 
+ * @see {@link Asig} (output), {@link Atom}, {@link atom}
+ * 
+ * @example
+ * ```ts
+ * const count = asig(0);
+ * 
+ * count(10);
+ * console.log(count()); // 10
+ * 
+ * count(x => x + 10);
+ * console.log(count()); // 20
+ * ```
+ */
+export function asig<T>(value: T, options?: SignalOptions<T>): Asig<T>;
+export function asig<T>(): Asig<T | undefined>;
+export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undefined>): Asig<T | undefined> {
+	return atom(createSignal(value, options));
+}
+
 export interface PairOptions {
 	/**
 	 * @default true
@@ -121,6 +151,28 @@ export function createPair<T>(getter: Accessor<T>, setter: Update<T>, options?: 
 		return value;
 	}) as Setter<T>;
 	return [ get, set ] as const;
+}
+
+/**
+ * Create an atomic getter setter pair. Short for `atom(createPair(...))`.
+ * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-pairs-apair)
+ * 
+ * @see {@link Accessor} (input), {@link Update} (input), {@link PairOptions} (input), {@link Asig} (output)
+ * 
+ * @example
+ * ```ts
+ * const count = asig(0);
+ * const double = apair(() => count() * 2, (x) => count(x / 2));
+ * 
+ * count(10);
+ * console.log(count(), double()); // 10 20
+ * 
+ * double(100);
+ * console.log(count(), double()); // 50 100
+ * ```
+ */
+export function apair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairOptions): Asig<T> {
+	return atom(createPair(getter, setter, options));
 }
 
 /**
@@ -511,56 +563,4 @@ export function createSubscription<T>(handler: Subscribable<T, T | undefined>, o
 		detached,
 	};
 	return Object.assign(fn, members);
-}
-
-/**
- * An atomic signal. A signal where the getter and setter are combined into one function.
- * 
- * @see {@link Atom}, {@link asig} (constructor)
- */
-export type Asig<T> = Atom<Signal<T>>;
-
-/**
- * Create an atomic signal. Short for `atom(createSignal(...))`.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-signals-asig)
- * 
- * @see {@link Asig} (output), {@link Atom}, {@link atom}
- * 
- * @example
- * ```ts
- * const count = asig(0);
- * 
- * count(10);
- * console.log(count()); // 10
- * 
- * count(x => x + 10);
- * console.log(count()); // 20
- * ```
- */
-export function asig<T>(value: T, options?: SignalOptions<T>): Asig<T>;
-export function asig<T>(): Asig<T | undefined>;
-export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undefined>): Asig<T | undefined> {
-	return atom(createSignal(value, options));
-}
-
-/**
- * Create an atomic getter setter pair. Short for `atom(createPair(...))`.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-pairs-apair)
- * 
- * @see {@link Accessor} (input), {@link Update} (input), {@link PairOptions} (input), {@link Asig} (output)
- * 
- * @example
- * ```ts
- * const count = asig(0);
- * const double = apair(() => count() * 2, (x) => count(x / 2));
- * 
- * count(10);
- * console.log(count(), double()); // 10 20
- * 
- * double(100);
- * console.log(count(), double()); // 50 100
- * ```
- */
-export function apair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairOptions): Asig<T> {
-	return atom(createPair(getter, setter, options));
 }
