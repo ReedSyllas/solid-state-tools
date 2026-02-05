@@ -375,6 +375,9 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Spool
 	});
 }
 
+/**
+ * @see {@link quantum} (constructor), {@link Accessor} (related)
+ */
 export type QuantumAccessor<T> = Accessor<T>;
 
 /**
