@@ -175,6 +175,126 @@ export function apair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairO
 	return atom(createPair(getter, setter, options));
 }
 
+export type Granular<T extends Setter<any>> = T & GranularMembers<T extends Setter<infer U> ? U : never>;
+
+export type GranularMembers<T> = {
+	/**
+	 * Write a value to the signal.
+	 * 
+	 * Unlike a {@link Setter}, the value is interpreted literally as is.
+	 * Therefore, a function can be passed here without it being invoked as a mapping function.
+	 */
+	set: (value: T) => void,
+	/**
+	 * Map the signal's current value to a new value.
+	 * 
+	 * Unlike a {@link Setter}, the value is expected to be a mapping function.
+	 */
+	map: (fn: (current: T) => T) => T,
+	/**
+	 * Modify the signal's value and then flush the updates to observers.
+	 * 
+	 * **This is intended for signals of an object with a special equals comparator.**
+	 * 
+	 * ## Troubleshooting
+	 * 
+	 * If a standard equals comparator is used for the signal, downstream observers will not be updated because the signal's value is still the same object after this call.
+	 * This is a bug in your code. An equals comparator that tests the object more thoroughly must be specified.  
+	 * **To fix**: set a custom equals comparator when creating the signal. See {@link sameObjectExclusionComparator}.
+	 * 
+	 * @see {@link sameObjectExclusionComparator}, {@link asig}, {@link createSignal}
+	 * 
+	 * @example
+	 * ```ts
+	 * const [ user, setUserRaw ] = createSignal({ firstName: "Anne", lastName: "Redwood" }, { equals: false });
+	 * const setUser = granular(setUserRaw);
+	 * 
+	 * setUser.mod((user) => {
+	 *   user.firstName = "Annabelle";
+	 * });
+	 * ```
+	 * 
+	 * @example
+	 * ```ts
+	 * const values: Granular<Asig<number[]>> = granular(asig([ 1, 2, 3 ], { equals: sameObjectExclusionComparator }));
+	 * const lastItem = values.mod(x => x.pop());
+	 * ```
+	 */
+	mod: <U = void>(fn: (current: T) => U) => U,
+};
+
+/**
+ * Attaches useful methods to a setter-like value.
+ * 
+ * The methods provide an alternative syntax for updating a signal; one with more granular control.
+ * 
+ * @see {@link Setter} (input), {@link Asig} (accepted input), {@link Granular} (output)
+ * 
+ * @example
+ * ```ts
+ * const [ count, setCountRaw ] = createSignal(0);
+ * const setCount = granular(setCountRaw);
+ * 
+ * // Read count.
+ * console.log(count());
+ * 
+ * // Update count with traditional setter.
+ * setCount(2);
+ * 
+ * // Update count with traditional setter mapping function.
+ * setCount(c => c + 1);
+ * 
+ * // Update count with granular `set` method.
+ * setCount.set(9);
+ * 
+ * // Update value with granular `map` method.
+ * setCount.map(c => c + 1);
+ * ```
+ * 
+ * @example
+ * ```ts
+ * const list = granular(asig([ 1, 2 ], { equals: sameObjectExclusionComparator }));
+ * 
+ * // Push to list with `mod` method.
+ * list.mod(x => x.push(3));
+ * ```
+ */
+export function granular<T extends Setter<any>>(setter: T): Granular<T> {
+	const members: GranularMembers<T extends Setter<infer U> ? U : never> = {
+		set(value) {
+			setter(() => value);
+		},
+		map(fn) {
+			return setter((x) => fn(x));
+		},
+		mod(fn) {
+			let value!: ReturnType<typeof fn>;
+			setter((x) => {
+				value = fn(x);
+				return x;
+			});
+			return value;
+		},
+	};
+	return Object.assign(setter, members);
+}
+
+/**
+ * An equals comparison function that always returns false for objects.
+ * 
+ * @example
+ * ```ts
+ * const [ list, setList ] = createSignal<number[] | undefined>(undefined, { equals: sameObjectExclusionComparator });
+ * setList(x => x);    // nothing happens because undefined equals undefined
+ * 
+ * setList([ 1, 2 ]);  // triggers update
+ * setList(x => x);    // triggers update despite the value not changing (because it is an object)
+ * ```
+ */
+export function sameObjectExclusionComparator<T>(prev: T, next: T): boolean {
+	return typeof next !== "object" && prev === next;
+}
+
 /**
  * Create a reactive boolean that temporarily flips to true when the subject changes value.
  * 
