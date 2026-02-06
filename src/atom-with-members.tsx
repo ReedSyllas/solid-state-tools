@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import { atom } from "../lib/index.ts";
 
-export function ComplexSignalAtom() {
+export function AtomWithMembers() {
 	const [ source, setSource ] = createSignal(0);
 	const a = 10;
 	const b = 20;
@@ -10,7 +10,7 @@ export function ComplexSignalAtom() {
 	return (
 		<div>
 			<h2>
-				{"Complex Signal Atom"}
+				{"Atom With Members"}
 			</h2>
 			
 			<p style={ { "color": value.a === a ? "green" : "red" } }>
