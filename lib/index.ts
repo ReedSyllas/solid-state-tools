@@ -228,12 +228,16 @@ export type GranularMembers<T> = {
  * 
  * The methods provide an alternative syntax for updating a signal; one with more granular control.
  * 
+ * This function is transparent over `setter`.
+ * If passed a {@link Setter} type, it is returned as `Granular<Setter<T>>`.
+ * If an {@link Asig} is passed, it is returned as `Granular<Asig<T>>`.
+ * 
  * @see {@link Setter} (input), {@link Asig} (accepted input), {@link Granular} (output)
  * 
  * @example
  * ```ts
  * const [ count, setCountRaw ] = createSignal(0);
- * const setCount = granular(setCountRaw);
+ * const setCount: Granular<Setter<number>> = granular(setCountRaw);
  * 
  * // Read count.
  * console.log(count());
@@ -253,7 +257,7 @@ export type GranularMembers<T> = {
  * 
  * @example
  * ```ts
- * const list = granular(asig([ 1, 2 ], { equals: sameObjectExclusionComparator }));
+ * const list: Granular<Asig<number[]>> = granular(asig([ 1, 2 ], { equals: sameObjectExclusionComparator }));
  * 
  * // Push to list with `mod` method.
  * list.mod(x => x.push(3));
@@ -593,10 +597,10 @@ export function derive<T>(source: QuantumAccessor<T>, options?: SignalOptions<T>
  * @see {@link Subscription}, {@link createSubscription}
  */
 export type Subscribable<T, Initial extends T | undefined> = {
-	get: () => Promise<T>,
-	set: (value: T) => Promise<void>,
-	sub: (update: Update<T>) => () => void,
-	reconcile?: (remote: T, local: Initial, cache: T | undefined) => T,
+	get: () => T,
+	set: (value: Awaited<T>) => T extends Promise<any> ? Promise<void> : void,
+	sub: (update: Update<Awaited<T>>) => () => void,
+	reconcile?: (remote: Awaited<T>, local: Initial, cache: Awaited<T> | undefined) => Awaited<T>,
 };
 
 /**
@@ -604,7 +608,7 @@ export type Subscribable<T, Initial extends T | undefined> = {
  * 
  * @see {@link createSubscription} (constructor), {@link QuantumAccessor} (component type)
  */
-export type Subscription<T> = QuantumAccessor<T> & Setter<T> & SubscriptionMembers<T>;
+export type Subscription<T> = QuantumAccessor<Awaited<T>> & Setter<Awaited<T>> & SubscriptionMembers<T>;
 
 export type SubscriptionMembers<T> = {
 	/**
@@ -612,15 +616,15 @@ export type SubscriptionMembers<T> = {
 	 * 
 	 * It changes when a new remote value is pushed or pulled to this subscribable.
 	 */
-	cache: Accessor<T | undefined>,
+	cache: Accessor<Awaited<T> | undefined>,
 	/**
 	 * Fetch the remote value and reconcile it with the current value (local) and cache.
 	 */
-	pull: () => Promise<T>,
+	pull: () => T,
 	/**
 	 * Push local to the remote.
 	 */
-	push: () => Promise<void>,
+	push: () => T extends Promise<any> ? Promise<void> : void,
 	/**
 	 * True if subscribed to the remote.
 	 */
@@ -637,7 +641,7 @@ export type SubscriptionMembers<T> = {
  * @see {@link createSubscription}, {@link Subscription}
  */
 export interface SubscriptionOptions<T> {
-	initial?: T,
+	initial?: Awaited<T>,
 }
 
 /**
@@ -645,20 +649,22 @@ export interface SubscriptionOptions<T> {
  * 
  * Quantum signals are used for dynamic subscription through observation.
  */
+export function createSubscription<T>(handler: Subscribable<T, T>, options: SubscriptionOptions<T> & { initial: T }): Subscription<T>;
+export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined>;
 export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined> {
-	const [ local, setLocal ] = createSignal<T | undefined>(options?.initial);
+	const [ local, setLocal ] = createSignal<Awaited<T> | undefined>(options?.initial);
 	let hasLocal = !!options?.initial;
-	const [ cache, setCache ] = createSignal<T | undefined>();
+	const [ cache, setCache ] = createSignal<Awaited<T> | undefined>();
 	const [ subscribed, setSubscribed ] = createSignal(false);
 	const detached = createMemo(() => local() !== cache());
-	const updateFromRemote = (remote: T): T => batch(() => {
+	const updateFromRemote = (remote: Awaited<T>): Awaited<T> => batch(() => {
 		const reconciled = handler.reconcile ? handler.reconcile(remote, untrack(local), untrack(cache)) : remote;
 		hasLocal = true;
 		setLocal(() => reconciled);
 		setCache(() => reconciled);
 		return reconciled;
 	});
-	const fn: Asig<T | undefined> = atom([
+	const fn: Asig<Awaited<T> | undefined> = atom([
 		quantum(local, () => {
 			const dispose = handler.sub(updateFromRemote);
 			setSubscribed(true);
@@ -673,13 +679,24 @@ export function createSubscription<T>(handler: Subscribable<T, T | undefined>, o
 		},
 	]);
 	const members: SubscriptionMembers<T> = {
-		async pull() {
-			const value = await untrack(handler.get);
-			return updateFromRemote(value);
+		pull() {
+			const value = untrack(handler.get);
+			if (typeof value === "object" && value !== null && value instanceof Promise) {
+				return new Promise<Awaited<T>>((resolve, reject) => {
+					value.then((x) => {
+						resolve(updateFromRemote(x));
+					});
+					value.catch(reject);
+				}) as T;
+			}
+			return updateFromRemote(value as Awaited<T>) as T;
 		},
-		async push() {
+		push(): any {
 			if (!hasLocal) return;
-			await handler.set(untrack(local)!);
+			const value = handler.set(untrack(local)!);
+			if (typeof value === "object" && value !== null && value instanceof Promise) {
+				return value;
+			}
 		},
 		cache,
 		subscribed,

@@ -1,6 +1,7 @@
-import { ComplexSignalAtom } from "./complex-signal-atom.tsx";
+import { AtomWithMembers } from "./atom-with-members.tsx";
 import { Counter } from "./counter.tsx";
 import { FetchedSignal } from "./fetched-signal.tsx";
+import { LocalStorageSubscription } from "./local-storage-subscription.tsx";
 import { Timer } from "./timer.tsx";
 
 export default function App() {
@@ -12,11 +13,13 @@ export default function App() {
 			<hr />
 			<Counter />
 			<hr />
-			<ComplexSignalAtom />
-			<hr />
 			<FetchedSignal />
 			<hr />
 			<Timer />
+			<hr />
+			<LocalStorageSubscription />
+			<hr />
+			<AtomWithMembers />
 		</>
 	);
 }
