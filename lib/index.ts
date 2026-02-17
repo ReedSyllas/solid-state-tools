@@ -218,7 +218,7 @@ export type GranularMembers<T> = {
 	 * 
 	 * @example
 	 * ```ts
-	 * const [ user, setUserRaw ] = createSignal({ firstName: "Anne", lastName: "Redwood" }, { equals: false });
+	 * const [ user, setUserRaw ] = createSignal({ firstName: "Annie", lastName: "Redwood" }, { equals: false });
 	 * const setUser = granular(setUserRaw);
 	 * 
 	 * setUser.mod((user) => {
@@ -307,7 +307,7 @@ export function granular<T extends Setter<any>>(setter: T): Granular<T> {
  * @example
  * ```ts
  * const [ list, setList ] = createSignal<number[] | undefined>(undefined, { equals: sameObjectExclusionComparator });
- * setList(x => x);    // nothing happens because undefined equals undefined
+ * setList(x => x);    // nothing happens because undefined strictly equals undefined
  * 
  * setList([ 1, 2 ]);  // triggers update
  * setList(x => x);    // triggers update despite being the same object (because objects aren't checked for equality)
@@ -324,7 +324,7 @@ export function sameObjectExclusionComparator<T>(prev: T, next: T): boolean {
  * Perhaps to draw the user's attention to it.
  * 
  * @param subject The subject to track for changes.
- * @param duration The duration in milliseconds to "blink" before resetting to false. Default: 500.
+ * @param duration The duration in milliseconds to "blink" before resetting to false. Default is `500`.
  * 
  * @see {@link Accessor}
  * 
@@ -382,6 +382,7 @@ export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value:
 export interface SpoolOptions<T> extends SignalOptions<T> {
 	/**
 	 * The initial value of the spool signal.
+	 * 
 	 * @default undefined
 	 */
 	initial?: T,
@@ -431,6 +432,11 @@ export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOp
  */
 export type Fetched<T> = Granular<Asig<T>> & FetchedMembers<T>;
 
+/**
+ * Members of the {@link Fetched} type.
+ * 
+ * @see {@link createFetched} (constructor)
+ */
 export interface FetchedMembers<T> {
 	/**
 	 * The last error to be thrown from the fetcher.
