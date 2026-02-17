@@ -1,4 +1,4 @@
-import { batch, createComputed, createMemo, createRoot, createSelector, createSignal, getListener, getOwner, on, onCleanup, runWithOwner, untrack, type Accessor, type Resource, type Setter, type Signal, type SignalOptions } from "solid-js";
+import { batch, createComputed, createMemo, createRoot, createSelector, createSignal, getListener, on, onCleanup, untrack, type Accessor, type Resource, type Setter, type Signal, type SignalOptions } from "solid-js";
 import { isDev } from "solid-js/web";
 
 /**
@@ -379,17 +379,12 @@ export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value:
  * 
  * @see {@link createSpool}
  */
-export interface SpoolOptions<T> {
+export interface SpoolOptions<T> extends SignalOptions<T> {
 	/**
 	 * The initial value of the spool signal.
 	 * @default undefined
 	 */
 	initial?: T,
-	/**
-	 * If set to true, the winch will not be invoked until the spool signal is read for the first time.
-	 * @default false
-	 */
-	late?: boolean,
 }
 
 /**
@@ -422,26 +417,11 @@ export interface SpoolOptions<T> {
  * ```
  */
 export function createSpool<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Granular<Asig<T>>;
-export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Granular<Asig<T | undefined>>;
-export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Granular<Asig<T | undefined>> {
-	const spool = asig(options?.initial);
-	const wind = () => winch((x) => spool(() => x), spool);
-	if (options?.late) {
-		const owner = getOwner();
-		let init: (() => void) | undefined = () => {
-			init = undefined;
-			runWithOwner(owner, wind);
-		};
-		return granular(apair(
-			() => {
-				init?.();
-				return spool();
-			},
-			(x) => spool(() => x),
-		));
-	}
-	wind();
-	return granular(spool);
+export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Granular<Asig<T | undefined>>;
+export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Granular<Asig<T | undefined>> {
+	const spool = granular(asig(options?.initial, options));
+	winch((x) => spool.set(x), spool);
+	return spool;
 }
 
 /**
@@ -529,8 +509,8 @@ export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "
  * @see {@link Winch} (input), {@link SpoolOptions} (input), {@link Fetched} (output)
  */
 export function createFetched<T>(fetcher: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Fetched<T>;
-export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined>;
-export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined> {
+export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Fetched<T | undefined>;
+export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Fetched<T | undefined> {
 	const [ error, setError ] = createSignal<unknown>();
 	const [ latest, setLatest ] = createSignal(options?.initial);
 	const [ state, setState ] = createSignal<FetchedState>("unresolved");
