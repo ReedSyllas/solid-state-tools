@@ -9,6 +9,14 @@ import { isDev } from "solid-js/web";
 export type Update<T> = (value: T) => void;
 
 /**
+ * A function that will periodically call the given `update` function on-demand.
+ * The current `value` (stateful) is also available to the consumer for incremental changes.
+ * 
+ * @see {@link Update}, {@link Accessor}
+ */
+export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
+
+/**
  * Any tuple of two functions where the first accepts no arguments and the second accepts any amount.
  * 
  * Used as the source of an {@link Atom}.
@@ -365,14 +373,6 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 	}, { defer: true }));
 	return flagged;
 }
-
-/**
- * A function that will periodically call the given `update` function on-demand.
- * The current `value` (stateful) is also available to the consumer for incremental changes.
- * 
- * @see {@link Update}, {@link Accessor}
- */
-export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
 
 /**
  * Options for creation of a spool signal.
