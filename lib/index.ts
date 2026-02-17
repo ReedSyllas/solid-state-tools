@@ -175,8 +175,20 @@ export function apair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairO
 	return atom(createPair(getter, setter, options));
 }
 
+/**
+ * A granular setter has methods for updating the signal predictably.
+ * 
+ * This type wraps any setter-like type, returning it with the granular members attached.
+ * 
+ * @see {@link GranularMembers}
+ */
 export type Granular<T extends Setter<any>> = T & GranularMembers<T extends Setter<infer U> ? U : never>;
 
+/**
+ * Useful methods for updating a signal predictably.
+ * 
+ * It's initial purpose was to split the combined write and map functionality of the {@link Setter} into separate methods.
+ */
 export type GranularMembers<T> = {
 	/**
 	 * Write a value to the signal.
@@ -226,13 +238,19 @@ export type GranularMembers<T> = {
 /**
  * Attaches useful methods to a setter-like value.
  * 
- * The methods provide an alternative syntax for updating a signal; one with more granular control.
+ * The given `setter` is mutated instead of cloned for memory efficiency and runtime performance.
  * 
- * This function is transparent over `setter`.
+ * The simple methods can be used to update the source signal.
+ * They each have their specific purpose unlike the {@link Setter} which uses dynamic overloading.
+ * 
+ * The type of `setter` is preserved.
  * If passed a {@link Setter} type, it is returned as `Granular<Setter<T>>`.
  * If an {@link Asig} is passed, it is returned as `Granular<Asig<T>>`.
  * 
- * @see {@link Setter} (input), {@link Asig} (accepted input), {@link Granular} (output)
+ * The result type can be substituted with the source type.
+ * Or in other words, a `Granular<T>` can be used anywhere `T` can.
+ * 
+ * @see {@link Setter} (input), {@link Asig} (alternative input), {@link Granular} (output)
  * 
  * @example
  * ```ts
@@ -257,7 +275,7 @@ export type GranularMembers<T> = {
  * 
  * @example
  * ```ts
- * const list: Granular<Asig<number[]>> = granular(asig([ 1, 2 ], { equals: sameObjectExclusionComparator }));
+ * const list: Granular<Asig<number[]>> = granular(asig([ 1, 2 ], { equals: false }));
  * 
  * // Push to list with `mod` method.
  * list.mod(x => x.push(3));
@@ -269,7 +287,7 @@ export function granular<T extends Setter<any>>(setter: T): Granular<T> {
 			setter(() => value);
 		},
 		map(fn) {
-			return setter((x) => fn(x));
+			return setter(fn);
 		},
 		mod(fn) {
 			let value!: ReturnType<typeof fn>;
@@ -292,7 +310,7 @@ export function granular<T extends Setter<any>>(setter: T): Granular<T> {
  * setList(x => x);    // nothing happens because undefined equals undefined
  * 
  * setList([ 1, 2 ]);  // triggers update
- * setList(x => x);    // triggers update despite the value not changing (because it is an object)
+ * setList(x => x);    // triggers update despite being the same object (because objects aren't checked for equality)
  * ```
  */
 export function sameObjectExclusionComparator<T>(prev: T, next: T): boolean {
@@ -349,8 +367,8 @@ export function createBlinker(subject: Accessor<unknown>, duration: number = 500
 }
 
 /**
- * A function that will periodically call the given update function as needed.
- * The current value (stateful) is also available to the consumer for incremental changes.
+ * A function that will periodically call the given `update` function on-demand.
+ * The current `value` (stateful) is also available to the consumer for incremental changes.
  * 
  * @see {@link Update}, {@link Accessor}
  */
@@ -403,45 +421,98 @@ export interface SpoolOptions<T> {
  * </div>
  * ```
  */
-export function createSpool<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Accessor<T>;
-export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Accessor<T | undefined>;
-export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Accessor<T | undefined> {
-	const [ spool, setSpool ] = createSignal(options?.initial);
-	const wind = () => winch((x) => setSpool(() => x), spool);
+export function createSpool<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Granular<Asig<T>>;
+export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Granular<Asig<T | undefined>>;
+export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Granular<Asig<T | undefined>> {
+	const spool = asig(options?.initial);
+	const wind = () => winch((x) => spool(() => x), spool);
 	if (options?.late) {
 		const owner = getOwner();
 		let init: (() => void) | undefined = () => {
 			init = undefined;
 			runWithOwner(owner, wind);
 		};
-		return () => {
-			init?.();
-			return spool();
-		};
+		return granular(apair(
+			() => {
+				init?.();
+				return spool();
+			},
+			(x) => spool(() => x),
+		));
 	}
 	wind();
-	return spool;
+	return granular(spool);
 }
 
 /**
- * A synchronous reactive state driven by a winch.
+ * A synchronous reactive state driven by a {@link Winch}.
  * 
- * @see {@link Accessor}, {@link Winch}, {@link createFetched} (constructor)
+ * @see {@link Accessor}, {@link Setter}, {@link Granular}, {@link GranularMembers}, {@link createFetched} (constructor)
  */
-export type Fetched<T> = Accessor<T> & FetchedMembers<T>;
+export type Fetched<T> = Granular<Asig<T>> & FetchedMembers<T>;
 
 export interface FetchedMembers<T> {
+	/**
+	 * The last error to be thrown from the fetcher.
+	 * 
+	 * @default undefined
+	 */
 	error: Accessor<unknown>,
+	/**
+	 * The latest value returned by the fetcher.
+	 * 
+	 * If the fetcher refreshes, this value will not update until it successfully returns a replacement value.
+	 */
 	latest: Accessor<T>,
+	/**
+	 * The current state/status of the fetcher as a string.
+	 * 
+	 * **Important: When testing for a specific state use {@link Fetched.is} instead since it is more efficient for that purpose.**
+	 * 
+	 * > ```ts
+	 * > - myFetched.state() === "unresolved" // inefficient
+	 * > + myFetched.is("unresolved")         // efficient
+	 * > ```
+	 * 
+	 * @see {@link FetchedState} for all possible states
+	 * 
+	 * @example
+	 * ```tsx
+	 * const myFetched = createFetched(...);
+	 * 
+	 * <div>
+	 *   Current state:
+	 *   { myFetched.state() }
+	 * </div>
+	 * ```
+	 */
 	state: Accessor<FetchedState>,
+	/**
+	 * Test the current state against a correlated string, reactively.
+	 * 
+	 * If the state changes to or from the given string, the listener of this call is notified.
+	 * 
+	 * @example
+	 * ```tsx
+	 * const myFetched = createFetched(...);
+	 * 
+	 * createComputed(() => {
+	 *   console.log(myFetched.is("errored"));
+	 * });
+	 * 
+	 * <Show when={myFetched.is("ready")}>
+	 *   ...
+	 * </Show>
+	 * ```
+	 */
 	is: (key: FetchedState) => boolean,
 }
 
 /**
  * Represents the current state of a fetched signal.
  * 
- * Its identical to {@link Resource.state} in meaning.
- * See the [table of definitions](https://docs.solidjs.com/reference/basic-reactivity/create-resource#resource) for that.
+ * The meanings or definitions of the states are identical to those of {@link Resource.state}.
+ * See the online [table of definitions](https://docs.solidjs.com/reference/basic-reactivity/create-resource#resource) for that.
  * 
  * @see {@link Fetched.state}
  */
@@ -457,9 +528,9 @@ export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "
  * 
  * @see {@link Winch} (input), {@link SpoolOptions} (input), {@link Fetched} (output)
  */
-export function createFetched<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Fetched<T>;
-export function createFetched<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined>;
-export function createFetched<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined> {
+export function createFetched<T>(fetcher: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Fetched<T>;
+export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined>;
+export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T>): Fetched<T | undefined> {
 	const [ error, setError ] = createSignal<unknown>();
 	const [ latest, setLatest ] = createSignal(options?.initial);
 	const [ state, setState ] = createSignal<FetchedState>("unresolved");
@@ -474,14 +545,9 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Spool
 			});
 			setState(hasLatest ? "refreshing" : "pending");
 			try {
-				winch((x) => {
+				fetcher((x) => {
 					if (invalided) return;
-					batch(() => {
-						setState("ready");
-						setLatest(() => x);
-						hasLatest = true;
-						update(x);
-					});
+					write(x);
 				}, value);
 			} catch (error) {
 				batch(() => {
@@ -491,7 +557,13 @@ export function createFetched<T>(winch: Winch<T, T | undefined>, options?: Spool
 			}
 		});
 	}, options);
-	return Object.assign(fetched, {
+	const write: Update<T | undefined> = (value) => batch(() => {
+		setState("ready");
+		setLatest(() => value);
+		hasLatest = true;
+		fetched.set(value);
+	});
+	return Object.assign(granular(apair(fetched, write)), {
 		error,
 		latest,
 		state,
@@ -597,9 +669,25 @@ export function derive<T>(source: QuantumAccessor<T>, options?: SignalOptions<T>
  * @see {@link Subscription}, {@link createSubscription}
  */
 export type Subscribable<T, Initial extends T | undefined> = {
+	/**
+	 * Get the latest value once.
+	 */
 	get: () => T,
-	set: (value: Awaited<T>) => T extends Promise<any> ? Promise<void> : void,
+	/**
+	 * Update the remote value once.
+	 */
+	set: (value: Awaited<T>) => T,
+	/**
+	 * Subscribe to the remote value.
+	 * 
+	 * A disposal function is returned. When called, the subscription is closed.
+	 */
 	sub: (update: Update<Awaited<T>>) => () => void,
+	/**
+	 * Reconcile the incoming remote value with the current local value.
+	 * 
+	 * Three values are supplied for this purpose: the incoming value `remote`, the current value `local`, and the last known remote value `cache`.
+	 */
 	reconcile?: (remote: Awaited<T>, local: Initial, cache: Awaited<T> | undefined) => Awaited<T>,
 };
 
@@ -623,8 +711,10 @@ export type SubscriptionMembers<T> = {
 	pull: () => T,
 	/**
 	 * Push local to the remote.
+	 * 
+	 * @throws {Error} Local value must be set before this is called.
 	 */
-	push: () => T extends Promise<any> ? Promise<void> : void,
+	push: () => T,
 	/**
 	 * True if subscribed to the remote.
 	 */
@@ -641,19 +731,28 @@ export type SubscriptionMembers<T> = {
  * @see {@link createSubscription}, {@link Subscription}
  */
 export interface SubscriptionOptions<T> {
+	/**
+	 * The initial value of the subscription.
+	 * 
+	 * This value is returned from the subscription accessor until the subscription handler changes it.
+	 * 
+	 * @default undefined
+	 */
 	initial?: Awaited<T>,
 }
 
 /**
- * Create a new subscription from a subscribable (handler).
+ * Create a new subscription from a subscription handler ({@link Subscribable}).
  * 
- * Quantum signals are used for dynamic subscription through observation.
+ * A quantum signal is returned for dynamic subscription on observation.
+ * Or in other words, the subscription is not created until the returned subscription is used (in a reactive context).
+ * Likewise, it is automatically disposed when unused.
  */
 export function createSubscription<T>(handler: Subscribable<T, T>, options: SubscriptionOptions<T> & { initial: T }): Subscription<T>;
 export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined>;
 export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined> {
 	const [ local, setLocal ] = createSignal<Awaited<T> | undefined>(options?.initial);
-	let hasLocal = !!options?.initial;
+	let hasLocal = options && "initial" in options;
 	const [ cache, setCache ] = createSignal<Awaited<T> | undefined>();
 	const [ subscribed, setSubscribed ] = createSignal(false);
 	const detached = createMemo(() => local() !== cache());
@@ -691,12 +790,11 @@ export function createSubscription<T>(handler: Subscribable<T, T | undefined>, o
 			}
 			return updateFromRemote(value as Awaited<T>) as T;
 		},
-		push(): any {
-			if (!hasLocal) return;
-			const value = handler.set(untrack(local)!);
-			if (typeof value === "object" && value !== null && value instanceof Promise) {
-				return value;
+		push() {
+			if (!hasLocal) {
+				throw new Error("cannot push unset local value");
 			}
+			return handler.set(untrack(local)!);
 		},
 		cache,
 		subscribed,
