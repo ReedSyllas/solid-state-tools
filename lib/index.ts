@@ -214,15 +214,15 @@ export type GranularMembers<T> = {
 	/**
 	 * Modify the signal's value and then flush the updates to observers.
 	 * 
-	 * **This is intended for signals of an object with a special equals comparator.**
+	 * **This is intended for signals storing an object with a special equals comparator.**
 	 * 
 	 * ## Troubleshooting
 	 * 
 	 * If a standard equals comparator is used for the signal, downstream observers will not be updated because the signal's value is still the same object after this call.
 	 * This is a bug in your code. An equals comparator that tests the object more thoroughly must be specified.  
-	 * **To fix**: set a custom equals comparator when creating the signal. See {@link sameObjectExclusionComparator}.
+	 * **To fix**: set a custom equals comparator when creating the signal. See {@link sameObjectExclusionComparator} for a drop-in replacement.
 	 * 
-	 * @see {@link sameObjectExclusionComparator}, {@link asig}, {@link createSignal}
+	 * @see {@link asig}, {@link createSignal}
 	 * 
 	 * @example
 	 * ```ts
