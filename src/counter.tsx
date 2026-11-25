@@ -1,71 +1,50 @@
-import { apair, asig, createBlinker } from "../lib/index.ts";
+import { createBlinker, createLens, withTurn } from "../lib/index.ts";
 
 export function Counter() {
-	const count = asig(0);
-	const countBlinked = createBlinker(count, 200);
+	const count = createLens(0);
+	const countBlinking = createBlinker(count, 200);
 	
-	const double = apair(() => count() * 2, (x) => count(x / 2));
-	const doubleBlinked = createBlinker(count, 200);
+	const double = count.derive((count) => count * 2);
+	const doubleBlinking = createBlinker(double, 200);
 	
 	return (
 		<div>
 			<h2>
 				{"Counter"}
 			</h2>
-			
-			<button onClick={() => void count(0)}>
+			<button onClick={() => { count.set(0); }}>
 				{"Reset"}
 			</button>
-			
 			<p>
 				{"Count: "}
-				<span style={ { "background-color": countBlinked() ? "orange" : undefined } }>
-					{ count() }
+				<span style={ { "background-color": countBlinking() ? "orange" : undefined } }>
+					{ count.get() }
 				</span>
 			</p>
-			<button onClick={() => void count(c => c / 2)}>
+			<button onClick={withTurn(() => { count.setWith(c => c / 2); })}>
 				{"/2"}
 			</button>
-			<button onClick={() => void count(c => c - 2)}>
+			<button onClick={withTurn(() => { count.setWith(c => c - 2); })}>
 				{"-2"}
 			</button>
-			<button onClick={() => void count(c => c - 1)}>
+			<button onClick={withTurn(() => { count.setWith(c => c - 1); })}>
 				{"-1"}
 			</button>
-			<button onClick={() => void count(c => c + 1)}>
+			<button onClick={withTurn(() => { count.setWith(c => c + 1); })}>
 				{"+1"}
 			</button>
-			<button onClick={() => void count(c => c + 2)}>
+			<button onClick={withTurn(() => { count.setWith(c => c + 2); })}>
 				{"+2"}
 			</button>
-			<button onClick={() => void count(c => c * 2)}>
+			<button onClick={withTurn(() => { count.setWith(c => c * 2); })}>
 				{"x2"}
 			</button>
-			
 			<p>
 				{"Double: "}
-				<span style={ { "background-color": doubleBlinked() ? "orange" : undefined } }>
-					{ double() }
+				<span style={ { "background-color": doubleBlinking() ? "orange" : undefined } }>
+					{ double.get() }
 				</span>
 			</p>
-			<button onClick={() => void double(c => c / 2)}>
-				{"/2"}
-			</button>
-			<button onClick={() => void double(c => c - 2)}>
-				{"-2"}
-			</button>
-			<button onClick={() => void double(c => c - 1)}>
-				{"-1"}
-			</button>
-			<button onClick={() => void double(c => c + 1)}>
-				{"+1"}
-			</button>
-			<button onClick={() => void double(c => c + 2)}>
-				{"+2"}
-			</button>
-			<button onClick={() => void double(c => c * 2)}>
-				{"x2"}
-			</button>
 		</div>
 	);
 }

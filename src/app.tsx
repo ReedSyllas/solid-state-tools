@@ -1,12 +1,15 @@
-import { test } from "../lib/v3.ts";
+import { Counter } from "./counter.tsx";
+import { lensTest } from "./lens-test.ts";
 
 export default function App() {
-	test();
+	lensTest();
 	return (
 		<>
 			<h1>
 				{"Solid State Tools"}
 			</h1>
+			<hr />
+			<Counter />
 		</>
 	);
 }

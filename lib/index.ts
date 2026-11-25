@@ -1,790 +1,532 @@
-import { batch, createComputed, createMemo, createRoot, createSelector, createSignal, getListener, on, onCleanup, untrack, type Accessor, type Resource, type Setter, type Signal, type SignalOptions } from "solid-js";
-import { isDev } from "solid-js/web";
+import {
+	type Accessor,
+	createSignal,
+	getObserver,
+	getOwner,
+	onCleanup,
+	type Signal,
+	untrack,
+} from "solid-js";
+
+function isRef(value: any): value is object {
+	return value !== null && typeof value === "object";
+}
 
 /**
- * A function that updates a state to the given value.
- * 
- * @see {@link Setter} (related type)
+ * Throws when there is no Solid owner. Without one, `onCleanup` never runs and lenses would leak
+ * their graph ids. Call it before allocating anything.
  */
-export type Update<T> = (value: T) => void;
+function requireOwner() {
+	if (getOwner() === null) {
+		throw new Error(
+			"A Solid owner is required. Create this inside a component, `createRoot`, or `runWithOwner`.",
+		);
+	}
+}
+
+/** Callbacks to run when the current turn ends, or `null` when no turn is active. */
+let TURN: (() => void)[] | null = null;
+
+export function isInTurn(): boolean {
+	return TURN !== null;
+}
+
+/** Schedules `fn` to run when the current turn ends. Throws when no turn is active. */
+export function onTurnEnd(fn: () => void) {
+	if (TURN === null) {
+		throw new Error(
+			"A turn is required. Make sure this code runs with one.",
+		);
+	}
+	TURN.push(fn);
+}
 
 /**
- * A function that will periodically call the given `update` function on-demand.
- * The current `value` (stateful) is also available to the consumer for incremental changes.
- * 
- * @see {@link Update}, {@link Accessor}
+ * Runs `fn` as one turn: all changes made inside it settle together when it returns. Nested calls
+ * join the outer turn. `set` starts a turn on its own, so this is only needed to group writes.
  */
-export type Winch<T, Initial extends T | undefined> = (update: Update<T>, value: Accessor<Initial>) => void;
-
-/**
- * Any tuple of two functions where the first accepts no arguments and the second accepts any amount.
- * 
- * Used as the source of an {@link Atom}.
- * 
- * @see {@link Atom}, {@link atom}
- */
-export type SignalLike = readonly [
-	getter: () => any,
-	setter: (...args: any) => any,
-];
-
-/**
- * An {@link Atom} is a polymorphic function that calls one of two
- *  functions depending on the number of arguments it has.
- * 
- * If called with zero arguments, the first function is called.
- * Otherwise, the second function is called with all arguments forwarded to it.
- * 
- * @see {@link SignalLike}, {@link atom} (constructor)
- */
-export type Atom<T extends SignalLike = SignalLike> = T[0] & T[1];
-
-/**
- * Combine a getter and setter function pair into one.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atoms-atom)
- * 
- * Accepts a tuple of two functions.
- * The first is the getter, the second is the setter.
- * A new function is returned that, when called with zero arguments, calls the getter.
- * Otherwise, it calls the setter and forwards all of the arguments.
- * 
- * @see {@link SignalLike} (input), {@link Atom} (output)
- * 
- * @example
- * ```ts
- * const count: Atom<Signal<T>> = atom(createSignal(0));
- * 
- * // Read
- * count();
- * 
- * // Write
- * count(100);
- * count(x => x + 1);
- * count(count() + 1);
- * ```
- */
-export function atom<const T extends SignalLike>(signal: T): Atom<T> {
-	if (isDev) {
-		// Assert that the input is valid.
-		// For production, these checks are skipped for performance.
-		
-		if (!Array.isArray(signal)) {
-			throw new Error(`expected signal to be an array, but got ${typeof signal}`);
-		}
-		if (typeof signal[0] !== "function") {
-			throw new Error(`expected getter to be a function, but got ${typeof signal[0]}`);
-		}
-		if (typeof signal[1] !== "function") {
-			throw new Error(`expected setter to be a function, but got ${typeof signal[1]}`);
+export function turn<T>(fn: () => T): T {
+	if (TURN !== null) {
+		return fn();
+	}
+	const queue: (() => void)[] = [];
+	TURN = queue;
+	try {
+		return fn();
+	} finally {
+		// Always settle, even if `fn` threw. Otherwise the graph stays queued and never notifies again.
+		// TURN stays set while settling because observers may `set`, which joins this turn.
+		try {
+			let next: (() => void) | undefined;
+			while ((next = queue.shift()) !== undefined) {
+				next();
+			}
+		} finally {
+			TURN = null;
 		}
 	}
-	const [ getter, setter ] = signal;
-	return Object.assign(
-		(...args: unknown[]) => (args.length === 0) ? getter() : setter(...args),
-		getter,
-		setter,
-	);
 }
 
-/**
- * An atomic signal. A signal where the getter and setter are combined into one function.
- * 
- * @see {@link Atom}, {@link asig} (constructor)
- */
-export type Asig<T> = Atom<Signal<T>>;
-
-/**
- * Create an atomic signal. Short for `atom(createSignal(...))`.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-signals-asig)
- * 
- * @see {@link Asig} (output), {@link Atom}, {@link atom}
- * 
- * @example
- * ```ts
- * const count = asig(0);
- * 
- * count(10);
- * console.log(count()); // 10
- * 
- * count(x => x + 10);
- * console.log(count()); // 20
- * ```
- */
-export function asig<T>(value: T, options?: SignalOptions<T>): Asig<T>;
-export function asig<T>(): Asig<T | undefined>;
-export function asig<T>(value?: T | undefined, options?: SignalOptions<T | undefined>): Asig<T | undefined> {
-	return atom(createSignal(value, options));
+export function withTurn<T>(fn: () => T): () => T {
+	return () => turn(fn);
 }
 
-export interface PairOptions {
-	/**
-	 * @default true
-	 */
-	memoized: boolean,
-}
+export type GraphId = number;
 
 /**
- * Create a signal from a getter setter pair.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#pairs-createpair)
- * 
- * **The getter is immediately invoked for memoization.**
- * 
- * @see {@link Accessor} (input), {@link Update} (input), {@link PairOptions} (input), {@link Signal} (output)
- * 
- * @example
- * ```ts
- * const [ count, setCount ] = createSignal(0);
- * const [ double, setDouble ] = createPair(() => count() * 2, (x) => setCount(x / 2));
- * 
- * setDouble(x => x + 2);
- * console.log(double(), count()); // 2 1
- * ```
+ * Tracks which lenses are bound to which ids and which ids changed during the current turn.
+ *
+ * There are two kinds of ids:
+ * - **Root ids** are created per {@link createLens} call. A root is its own slot, so two roots
+ *   holding the same object are still independent.
+ * - **Key ids** identify the slot `(object, key)`. Every key lens whose parent currently holds
+ *   `object` shares this id, so a write through any of them notifies all of them.
+ *
+ * An id is released (and recycled) once no lens is bound to it.
  */
-export function createPair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairOptions): Signal<T> {
-	if (isDev) {
-		// Assert that the input is valid.
-		// For production, these checks are skipped for performance.
-		
-		if (typeof getter !== "function") {
-			throw new Error(`expected getter to be a function, but got ${typeof getter}`);
+export class Graph {
+	private nextId: GraphId = 0;
+	private readonly sparseIds: GraphId[] = [];
+	private readonly lenses = new Map<GraphId, Set<RoLens<any>>>();
+	private readonly releasers = new Map<GraphId, () => void>();
+	private readonly keyIds = new WeakMap<object, Map<PropertyKey, GraphId>>();
+	private readonly invalidatedIds = new Set<GraphId>();
+	private isInTurnQueue = false;
+
+	createId(onRelease?: () => void): GraphId {
+		let id = this.sparseIds.pop();
+		if (id === undefined) {
+			id = this.nextId;
+			this.nextId += 1;
 		}
-		if (typeof setter !== "function") {
-			throw new Error(`expected setter to be a function, but got ${typeof setter}`);
-		}
+		this.lenses.set(id, new Set());
+		if (onRelease) this.releasers.set(id, onRelease);
+		return id;
 	}
-	const get = options?.memoized === false ? getter : createMemo(getter);
-	const set = ((source) => {
-		const value = (typeof source === "function") ? (source as Function)(untrack(get)) : source;
-		setter(value);
-		return value;
-	}) as Setter<T>;
-	return [ get, set ] as const;
-}
 
-/**
- * Create an atomic getter setter pair. Short for `atom(createPair(...))`.
- * [See documentation.](https://github.com/ReedSyllas/solid-state-tools#atomic-pairs-apair)
- * 
- * @see {@link Accessor} (input), {@link Update} (input), {@link PairOptions} (input), {@link Asig} (output)
- * 
- * @example
- * ```ts
- * const count = asig(0);
- * const double = apair(() => count() * 2, (x) => count(x / 2));
- * 
- * count(10);
- * console.log(count(), double()); // 10 20
- * 
- * double(100);
- * console.log(count(), double()); // 50 100
- * ```
- */
-export function apair<T>(getter: Accessor<T>, setter: Update<T>, options?: PairOptions): Asig<T> {
-	return atom(createPair(getter, setter, options));
-}
-
-/**
- * A granular setter has methods for updating the signal predictably.
- * 
- * This type wraps any setter-like type, returning it with the granular members attached.
- * 
- * @see {@link GranularMembers}
- */
-export type Granular<T extends Setter<any>> = T & GranularMembers<T extends Setter<infer U> ? U : never>;
-
-/**
- * Useful methods for updating a signal predictably.
- * 
- * It's initial purpose was to split the combined write and map functionality of the {@link Setter} into separate methods.
- */
-export type GranularMembers<T> = {
-	/**
-	 * Write a value to the signal.
-	 * 
-	 * Unlike a {@link Setter}, the value is interpreted literally as is.
-	 * Therefore, a function can be passed here without it being invoked as a mapping function.
-	 */
-	set: (value: T) => void,
-	/**
-	 * Map the signal's current value to a new value.
-	 * 
-	 * Unlike a {@link Setter}, the value is expected to be a mapping function.
-	 */
-	map: (fn: (current: T) => T) => T,
-	/**
-	 * Modify the signal's value and then flush the updates to observers.
-	 * 
-	 * **This is intended for signals storing an object with a special equals comparator.**
-	 * 
-	 * ## Troubleshooting
-	 * 
-	 * If a standard equals comparator is used for the signal, downstream observers will not be updated because the signal's value is still the same object after this call.
-	 * This is a bug in your code. An equals comparator that tests the object more thoroughly must be specified.  
-	 * **To fix**: set a custom equals comparator when creating the signal. See {@link sameObjectExclusionComparator} for a drop-in replacement.
-	 * 
-	 * @see {@link asig}, {@link createSignal}
-	 * 
-	 * @example
-	 * ```ts
-	 * const [ user, setUserRaw ] = createSignal({ firstName: "Annie", lastName: "Redwood" }, { equals: false });
-	 * const setUser = granular(setUserRaw);
-	 * 
-	 * setUser.mod((user) => {
-	 *   user.firstName = "Annabelle";
-	 * });
-	 * ```
-	 * 
-	 * @example
-	 * ```ts
-	 * const values: Granular<Asig<number[]>> = granular(asig([ 1, 2, 3 ], { equals: sameObjectExclusionComparator }));
-	 * const lastItem = values.mod(x => x.pop());
-	 * ```
-	 */
-	mod: <U = void>(fn: (current: T) => U) => U,
-};
-
-/**
- * Attaches useful methods to a setter-like value.
- * 
- * The given `setter` is mutated instead of cloned for memory efficiency and runtime performance.
- * 
- * The simple methods can be used to update the source signal.
- * They each have their specific purpose unlike the {@link Setter} which uses dynamic overloading.
- * 
- * The type of `setter` is preserved.
- * If passed a {@link Setter} type, it is returned as `Granular<Setter<T>>`.
- * If an {@link Asig} is passed, it is returned as `Granular<Asig<T>>`.
- * 
- * The result type can be substituted with the source type.
- * Or in other words, a `Granular<T>` can be used anywhere `T` can.
- * 
- * @see {@link Setter} (input), {@link Asig} (alternative input), {@link Granular} (output)
- * 
- * @example
- * ```ts
- * const [ count, setCountRaw ] = createSignal(0);
- * const setCount: Granular<Setter<number>> = granular(setCountRaw);
- * 
- * // Read count.
- * console.log(count());
- * 
- * // Update count with traditional setter.
- * setCount(2);
- * 
- * // Update count with traditional setter mapping function.
- * setCount(c => c + 1);
- * 
- * // Update count with granular `set` method.
- * setCount.set(9);
- * 
- * // Update value with granular `map` method.
- * setCount.map(c => c + 1);
- * ```
- * 
- * @example
- * ```ts
- * const list: Granular<Asig<number[]>> = granular(asig([ 1, 2 ], { equals: false }));
- * 
- * // Push to list with `mod` method.
- * list.mod(x => x.push(3));
- * ```
- */
-export function granular<T extends Setter<any>>(setter: T): Granular<T> {
-	const members: GranularMembers<T extends Setter<infer U> ? U : never> = {
-		set(value) {
-			setter(() => value);
-		},
-		map(fn) {
-			return setter(fn);
-		},
-		mod(fn) {
-			let value!: ReturnType<typeof fn>;
-			setter((x) => {
-				value = fn(x);
-				return x;
+	/** Returns the id of the slot `(target, key)`, creating it if needed. */
+	keyId(target: unknown, key: PropertyKey): GraphId {
+		if (!isRef(target)) {
+			// There is no shared slot to identify, so the lens gets a private id.
+			return this.createId();
+		}
+		let ids = this.keyIds.get(target);
+		if (!ids) {
+			ids = new Map();
+			this.keyIds.set(target, ids);
+		}
+		let id = ids.get(key);
+		if (id === undefined) {
+			const slots = ids;
+			id = this.createId(() => {
+				slots.delete(key);
 			});
-			return value;
-		},
-	};
-	return Object.assign(setter, members);
-}
-
-/**
- * An equals comparison function that always returns false for objects.
- * 
- * @example
- * ```ts
- * const [ list, setList ] = createSignal<number[] | undefined>(undefined, { equals: sameObjectExclusionComparator });
- * setList(x => x);    // nothing happens because undefined strictly equals undefined
- * 
- * setList([ 1, 2 ]);  // triggers update
- * setList(x => x);    // triggers update despite being the same object (because objects aren't checked for equality)
- * ```
- */
-export function sameObjectExclusionComparator<T>(prev: T, next: T): boolean {
-	return typeof next !== "object" && prev === next;
-}
-
-/**
- * Create a reactive boolean that temporarily flips to true when the subject changes value.
- * 
- * Useful for flashing an element when a signal changes value.
- * Perhaps to draw the user's attention to it.
- * 
- * @param subject The subject to track for changes.
- * @param duration The duration in milliseconds to "blink" before resetting to false. Default is `500`.
- * 
- * @see {@link Accessor}
- * 
- * @example
- * ```tsx
- * const [ count, setCount ] = createSignal(0);
- * const countBlinked = createBlinker(count, 200);
- * 
- * <span style={ { "color": countBlinked() ? "orange" : undefined } }>
- *   { count() }
- * </span>
- * ```
- */
-export function createBlinker(subject: Accessor<unknown>, duration: number = 500): Accessor<boolean> {
-	if (isDev) {
-		// Assert that the input is valid.
-		// For production, these checks are skipped for performance.
-		
-		if (typeof subject !== "function") {
-			throw new Error(`expected subject to be a function, but got ${typeof subject}`);
+			ids.set(key, id);
 		}
-		if (typeof duration !== "number") {
-			throw new Error(`expected duration to be a number, but got ${typeof duration}`);
+		return id;
+	}
+
+	/** Binds `lens` to `id`. Returns a function that unbinds it, releasing `id` if it was the last lens. */
+	bind(id: GraphId, lens: RoLens<any>): () => void {
+		this.lenses.get(id)!.add(lens);
+		let unbound = false;
+		return () => {
+			if (unbound) return;
+			unbound = true;
+			const bound = this.lenses.get(id)!;
+			bound.delete(lens);
+			if (bound.size === 0) {
+				this.release(id);
+			}
+		};
+	}
+
+	lensesAt(id: GraphId): RoLens<any>[] {
+		return this.lenses.get(id)?.values().toArray() ?? [];
+	}
+
+	invalidate(id: GraphId) {
+		this.invalidatedIds.add(id);
+		if (!this.isInTurnQueue) {
+			onTurnEnd(this._settle);
+			this.isInTurnQueue = true;
 		}
 	}
-	const [ flagged, setFlagged ] = createSignal(false);
+
+	dispose() {
+		Object.freeze(this);
+	}
+
+	private release(id: GraphId) {
+		console.log("should dispose id:", id);
+		this.lenses.delete(id);
+		this.invalidatedIds.delete(id);
+		this.releasers.get(id)?.();
+		this.releasers.delete(id);
+		if (id === this.nextId - 1) {
+			this.nextId -= 1;
+		} else {
+			this.sparseIds.push(id);
+		}
+	}
+
+	private _settle = () => {
+		// Observers may `set` while settling, which invalidates more ids. Keep draining until stable.
+		// Solid batches the trigger writes itself (they apply on its next flush), so computations only
+		// ever see the settled graph. `untrack` keeps observers from subscribing a Solid computation
+		// that happened to call `set`.
+		let rounds = 0;
+		try {
+			untrack(() => {
+			while (this.invalidatedIds.size > 0) {
+				if (++rounds > MAX_SETTLE_ROUNDS) {
+					throw new Error(
+						`Graph did not settle after ${MAX_SETTLE_ROUNDS} rounds. An effect is likely setting state it depends on.`,
+					);
+				}
+				const ids = this.invalidatedIds.values().toArray();
+				this.invalidatedIds.clear();
+				for (const invalidatedId of ids) {
+					for (const lens of this.lensesAt(invalidatedId)) {
+						RoLens.notify(lens);
+					}
+				}
+			}
+			});
+		} finally {
+			this.invalidatedIds.clear();
+			this.isInTurnQueue = false;
+		}
+	};
+}
+
+const MAX_SETTLE_ROUNDS = 100;
+
+const GLOBAL_GRAPH = new Graph();
+
+/**
+ * A read-only view of a value in the graph.
+ *
+ * Effects run when the turn that changed the value settles. A derived lens (from {@link derive})
+ * is notified one settle round after its source, so chains of derived lenses propagate naturally.
+ */
+export class RoLens<T> {
+	protected _id: GraphId;
+	protected _unbind: () => void;
+	protected _disposed = false;
+	private readonly _observers = new Set<() => void>();
+	/** Extra teardown, e.g. a derived lens unsubscribing from its source. Runs newest first. */
+	private readonly _cleanups: (() => void)[] = [];
+	/**
+	 * Created on the first tracked read and dropped once Solid has no subscribers, so lenses that
+	 * aren't being watched by Solid don't hold a signal.
+	 */
+	private _trigger: Signal<void> | undefined;
+
+	constructor(
+		protected readonly _graph: Graph,
+		protected readonly _resolveId: () => GraphId,
+		private readonly _get: () => T,
+	) {
+		this._id = _resolveId();
+		this._unbind = this._graph.bind(this._id, this);
+	}
+
+	/**
+	 * Reads the value and, inside a Solid computation (JSX, a `createEffect` compute, `createMemo`,
+	 * ...), subscribes it to this lens. The computation re-runs on Solid's next flush after the turn
+	 * that changed it settles.
+	 */
+	get(): T {
+		if (getObserver() !== null && !this._disposed) {
+			if (this._trigger === undefined) {
+				const trigger: Signal<void> = createSignal<void>(undefined, {
+					equals: false,
+					// Lenses may be set from a component body or computation (e.g. a lens effect reacting
+					// to another lens). The trigger is internal, so it opts out of Solid's owned-write guard.
+					ownedWrite: true,
+					unobserved: () => {
+						// The lens may be disposed (and frozen) by the time Solid lets go.
+						if (!this._disposed && this._trigger === trigger) {
+							this._trigger = undefined;
+						}
+					},
+				});
+				this._trigger = trigger;
+			}
+			this._trigger[0]();
+		}
+		return this._get();
+	}
+
+	/** Reads the value without subscribing. Always computed from the source, so it is never stale. */
+	peek(): T {
+		return this._get();
+	}
+
+	onEffect(observer: (value: T) => void): () => void {
+		const run = () => observer(this.peek());
+		this._observers.add(run);
+		return () => {
+			this._observers.delete(run);
+		};
+	}
+
+	effect(observer: (value: T) => void): void {
+		requireOwner();
+		onCleanup(this.onEffect(observer));
+	}
+
+	/**
+	 * Creates a read-only lens of `transform(this.peek())`, owned by the current Solid owner.
+	 *
+	 * If `eq` is given, the derived lens only notifies when `eq(previous, next)` is false, where
+	 * `previous` is the last value it notified with (or its initial value).
+	 */
+	derive<U>(
+		transform: (value: T) => U,
+		eq?: (curr: U, next: U) => boolean,
+	): RoLens<U> {
+		if (this._disposed) {
+			throw new Error("Cannot derive from a disposed lens.");
+		}
+		requireOwner();
+		const derived = new RoLens<U>(
+			this._graph,
+			() => this._graph.createId(),
+			// Untracked: the derived lens's own trigger is what Solid should see, or `eq` is bypassed.
+			() => transform(this.peek()),
+		);
+		let last = eq ? derived.peek() : undefined;
+		// Subscribe to the lens rather than its id, so this follows key lenses when they rebind.
+		const unsubscribe = this.onEffect(() => {
+			if (eq) {
+				const next = derived.peek();
+				if (eq(last as U, next)) return;
+				last = next;
+			}
+			derived._graph.invalidate(derived._id);
+		});
+		derived._cleanups.push(unsubscribe);
+		onCleanup(() => RoLens.dispose(derived));
+		return derived;
+	}
+
+	/** Like {@link derive} with an identity transform: notifies only when the value is not `Object.is` equal. */
+	distinct(): RoLens<T> {
+		return this.distinctBy(Object.is);
+	}
+
+	/** Like {@link derive} with an identity transform: notifies only when `eq` returns false. */
+	distinctBy(eq: (curr: T, next: T) => boolean): RoLens<T> {
+		return this.derive((value) => value, eq);
+	}
+
+	private _notify() {
+		for (const observer of Array.from(this._observers)) {
+			observer();
+		}
+		this._trigger?.[1]();
+	}
+
+	/** Teardown hook for subclasses. Called once, by {@link RoLens.dispose}. */
+	protected _dispose() {
+		let cleanup: (() => void) | undefined;
+		while ((cleanup = this._cleanups.pop()) !== undefined) {
+			cleanup();
+		}
+		this._unbind();
+		this._observers.clear();
+		// Solid computations still subscribed simply stop updating.
+		this._trigger = undefined;
+	}
+
+	static dispose(lens: RoLens<any>) {
+		if (lens._disposed) return;
+		lens._disposed = true;
+		lens._dispose();
+		Object.freeze(lens);
+	}
+
+	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
+	static notify(lens: RoLens<any>) {
+		lens._notify();
+	}
+}
+
+/**
+ * A readable/writable view of a location.
+ *
+ * - `set` replaces the value at this lens's location. For a root lens that location is private
+ *   to the lens. For a key lens it is the `(object, key)` slot, which every lens viewing that slot
+ *   sees.
+ * - Replacing a value rebinds all descendant key lenses to the new object's slots and notifies them.
+ *
+ * Lifetime: a lens from {@link createLens} belongs to the current Solid owner. Inside a
+ * `createEffect` or `createMemo` that is the computation, so the lens is disposed on each re-run. A key lens belongs to its
+ * parent lens (not to whichever owner first called `.key()`), so it is cached safely across owners
+ * and is disposed, in reverse creation order, right before its parent.
+ */
+export class Lens<T> extends RoLens<T> {
+	private readonly _children = new Map<PropertyKey, Lens<any>>();
+
+	constructor(
+		graph: Graph,
+		resolveId: () => GraphId,
+		get: () => T,
+		private readonly _set: (next: T) => void,
+	) {
+		super(graph, resolveId, get);
+	}
+
+	/** Replaces the value. Starts a turn if none is active, so effects run before this returns. */
+	set(next: T): void {
+		turn(() => {
+			this._set(next);
+			this._graph.invalidate(this._id);
+			// Every lens viewing this slot now has a new value, so all of their descendants must rebind.
+			for (const lens of this._graph.lensesAt(this._id)) {
+				if (lens instanceof Lens) {
+					lens._refreshChildren();
+				}
+			}
+		});
+	}
+
+	setWith(fn: (curr: T) => T): void {
+		this.set(fn(this.peek()));
+	}
+
+	key<T extends object, K extends keyof T>(
+		this: Lens<T>,
+		key: K,
+	): Lens<T[K]> {
+		if (this._disposed) {
+			throw new Error("Cannot create a key lens from a disposed lens.");
+		}
+		const cached = this._children.get(key);
+		if (cached && !cached._disposed) {
+			return cached;
+		}
+		// Re-insert so iteration order (and thus disposal order) matches creation order.
+		this._children.delete(key);
+		const child = new Lens<T[K]>(
+			this._graph,
+			() => this._graph.keyId(this.peek(), key),
+			() => this.peek()[key],
+			(next) => {
+				this.peek()[key] = next;
+			},
+		);
+		this._children.set(key, child);
+		return child;
+	}
+
+	/** Re-resolves this lens's slot after an ancestor changed, then does the same for its children. */
+	private _refresh() {
+		const next = this._resolveId();
+		if (next !== this._id) {
+			// Bind before unbinding so `next` can't be recycled in between.
+			const unbindNext = this._graph.bind(next, this);
+			this._unbind();
+			this._id = next;
+			this._unbind = unbindNext;
+		}
+		this._graph.invalidate(this._id);
+		this._refreshChildren();
+	}
+
+	private _refreshChildren() {
+		for (const [key, child] of this._children) {
+			if (child._disposed) {
+				this._children.delete(key);
+			} else {
+				child._refresh();
+			}
+		}
+	}
+
+	protected override _dispose() {
+		// Children were created after their parent, so they go first, newest first.
+		for (const child of this._children.values().toArray().reverse()) {
+			RoLens.dispose(child);
+		}
+		this._children.clear();
+		super._dispose();
+	}
+}
+
+/**
+ * Creates an independent root lens. Two roots created from the same object share key slots
+ * (writes through `.key()` are seen by both), but `set` on one never affects the other.
+ */
+export function createLens<T>(value: T): Lens<T> {
+	requireOwner();
+	const lens = new Lens<T>(
+		GLOBAL_GRAPH,
+		() => GLOBAL_GRAPH.createId(),
+		() => value,
+		(next) => {
+			value = next;
+		},
+	);
+	onCleanup(() => RoLens.dispose(lens));
+	return lens;
+}
+
+export function createBlinker(
+	lens: RoLens<any>,
+	/** Duration in ms. */ duration: number = 500,
+): Accessor<boolean> {
+	// Written from lens observers, which may run inside an owned scope.
+	const [blinking, setBlinking] = createSignal(false, { ownedWrite: true });
 	let timeout: ReturnType<typeof setTimeout> | undefined;
-	createComputed(on(subject, () => {
+	lens.effect(() => {
 		if (timeout !== undefined) {
 			clearTimeout(timeout);
 		} else {
-			setFlagged(true);
+			setBlinking(true);
 		}
 		timeout = setTimeout(() => {
-			setFlagged(false);
 			timeout = undefined;
+			setBlinking(false);
 		}, duration);
-	}, { defer: true }));
-	return flagged;
-}
-
-/**
- * Options for creation of a spool signal.
- * 
- * @see {@link createSpool}
- */
-export interface SpoolOptions<T> extends SignalOptions<T> {
-	/**
-	 * The initial value of the spool signal.
-	 * 
-	 * @default undefined
-	 */
-	initial?: T,
-}
-
-/**
- * Create a signal from a winch.
- * 
- * This is essentially an alternative way of writing a signal declaration.
- * 
- * Note that the winch is not tracked and therefore does not automatically rerun when state changes.
- * This behavior can be implemented in the winch function itself, if desired.
- * Use {@link createFetched} for a reactive version.
- * 
- * @see {@link Winch} (input), {@link SpoolOptions} (input), {@link Accessor} (output)
- * 
- * @example
- * ```tsx
- * // A timer that updates each second.
- * const time: Accessor<number> = createSpool((setTime, curr) => {
- *   // Start timer.
- *   const interval = setInterval(() => void setTime(curr() + 1), 1000);
- *   
- *   // Dispose of timer when signal is destroyed.
- *   onCleanup(() => void clearInterval(interval));
- * }, {
- *   initial: 0,
- * });
- * 
- * <div>
- *   { time() }
- * </div>
- * ```
- */
-export function createSpool<T>(winch: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Granular<Asig<T>>;
-export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Granular<Asig<T | undefined>>;
-export function createSpool<T>(winch: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Granular<Asig<T | undefined>> {
-	const spool = granular(asig(options?.initial, options));
-	winch((x) => spool.set(x), spool);
-	return spool;
-}
-
-/**
- * A synchronous reactive state driven by a {@link Winch}.
- * 
- * @see {@link Accessor}, {@link Setter}, {@link Granular}, {@link GranularMembers}, {@link createFetched} (constructor)
- */
-export type Fetched<T> = Granular<Asig<T>> & FetchedMembers<T>;
-
-/**
- * Members of the {@link Fetched} type.
- * 
- * @see {@link createFetched} (constructor)
- */
-export interface FetchedMembers<T> {
-	/**
-	 * The last error to be thrown from the fetcher.
-	 * 
-	 * @default undefined
-	 */
-	error: Accessor<unknown>,
-	/**
-	 * The latest value returned by the fetcher.
-	 * 
-	 * If the fetcher refreshes, this value will not update until it successfully returns a replacement value.
-	 */
-	latest: Accessor<T>,
-	/**
-	 * The current state/status of the fetcher as a string.
-	 * 
-	 * **Important: When testing for a specific state use {@link Fetched.is} instead since it is more efficient for that purpose.**
-	 * 
-	 * > ```ts
-	 * > - myFetched.state() === "unresolved" // inefficient
-	 * > + myFetched.is("unresolved")         // efficient
-	 * > ```
-	 * 
-	 * @see {@link FetchedState} for all possible states
-	 * 
-	 * @example
-	 * ```tsx
-	 * const myFetched = createFetched(...);
-	 * 
-	 * <div>
-	 *   Current state:
-	 *   { myFetched.state() }
-	 * </div>
-	 * ```
-	 */
-	state: Accessor<FetchedState>,
-	/**
-	 * Test the current state against a correlated string, reactively.
-	 * 
-	 * If the state changes to or from the given string, the listener of this call is notified.
-	 * 
-	 * @example
-	 * ```tsx
-	 * const myFetched = createFetched(...);
-	 * 
-	 * createComputed(() => {
-	 *   console.log(myFetched.is("errored"));
-	 * });
-	 * 
-	 * <Show when={myFetched.is("ready")}>
-	 *   ...
-	 * </Show>
-	 * ```
-	 */
-	is: (key: FetchedState) => boolean,
-}
-
-/**
- * Represents the current state of a fetched signal.
- * 
- * The meanings or definitions of the states are identical to those of {@link Resource.state}.
- * See the online [table of definitions](https://docs.solidjs.com/reference/basic-reactivity/create-resource#resource) for that.
- * 
- * @see {@link Fetched.state}
- */
-export type FetchedState = "unresolved" | "pending" | "ready" | "refreshing" | "errored";
-
-/**
- * Create a signal that's driven by a tracked winch.
- * 
- * The winch is tracked and therefore is rerun when its state changes.
- * 
- * If the winch is rerun, the old winch can no longer mutate the state.
- * This prevents race conditions where the old winch attempts to write _after_ the new winch resolved.
- * 
- * @see {@link Winch} (input), {@link SpoolOptions} (input), {@link Fetched} (output)
- */
-export function createFetched<T>(fetcher: Winch<T, T>, options: SpoolOptions<T> & { initial: T }): Fetched<T>;
-export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Fetched<T | undefined>;
-export function createFetched<T>(fetcher: Winch<T, T | undefined>, options?: SpoolOptions<T | undefined>): Fetched<T | undefined> {
-	const [ error, setError ] = createSignal<unknown>();
-	const [ latest, setLatest ] = createSignal(options?.initial);
-	const [ state, setState ] = createSignal<FetchedState>("unresolved");
-	const is = createSelector(state);
-	let hasLatest = false;
-	const fetched = createSpool<T | undefined>((update, value) => {
-		createComputed(() => {
-			let invalided = false;
-			onCleanup(() => {
-				invalided = true;
-				update(undefined);
-			});
-			setState(hasLatest ? "refreshing" : "pending");
-			try {
-				fetcher((x) => {
-					if (invalided) return;
-					write(x);
-				}, value);
-			} catch (error) {
-				batch(() => {
-					setState("errored");
-					setError(error);
-				});
-			}
-		});
-	}, options);
-	const write: Update<T | undefined> = (value) => batch(() => {
-		setState("ready");
-		setLatest(() => value);
-		hasLatest = true;
-		fetched.set(value);
 	});
-	return Object.assign(granular(apair(fetched, write)), {
-		error,
-		latest,
-		state,
-		is,
-	});
+	return blinking;
 }
 
-/**
- * @see {@link quantum} (constructor), {@link Accessor} (related)
- */
-export type QuantumAccessor<T> = Accessor<T>;
+export type Delta<T extends object> = Change<T>[];
 
-/**
- * Create a quantum accessor.
- * 
- * A quantum accessor counts its listeners and executes `track` if it is used at least once.
- * When it is no longer used, `track`'s disposal function is invoked.
- * 
- * Quantum accessors have standalone utility, but their primary purpose was to create and destroy subscriptions on the fly.
- * Thus, {@link createSubscription} and {@link derive} replace most situations where {@link quantum} would be invoked directly.
- * 
- * Note that quantum accessors count listeners ambiguously.
- * Thus, some primitives must be substituted with a quantum-compatible one to preserve the 'quantum' behavior.
- * Using a quantum accessor in these primitives (e.g. {@link createMemo}) is not _wrong_, but it may have unintended side-effects.
- * Use {@link derive} in place of {@link createMemo} for quantum accessors.
- * 
- * Technically, {@link QuantumAccessor} is just an alias of {@link Accessor} and can be used anywhere {@link Accessor} is allowed.
- * However, it is useful to mark it this way due to the special handling (mentioned above) that's sometimes needed.
- * 
- * @example
- * ```ts
- * const [ source ] = createSignal(0);
- * const count = quantum(source, () => {
- *   console.log("count is now observed");
- *   return () => {
- *     console.log("count is no longer observed");
- *   };
- * });
- * 
- * createRoot((dispose) => {
- *   count(); // nothing happens because `createRoot` doesn't track signals
- *   
- *   createComputed(() => {
- *     count(); // prints "count is now observed" because `createComputed` started tracking `count`
- *     count(); // nothing happens because count is already tracked at least once
- *   });
- *   
- *   dispose(); // prints "count is no longer observed" because the `createComputed` is destroyed and `count` isn't tracked by anything else
- * });
- * ```
- */
-export function quantum<T>(source: Accessor<T>, track: () => () => void): QuantumAccessor<T> {
-	let counter = 0;
-	let dispose: (() => void) | undefined;
-	const count = () => {
-		if (counter === 0) {
-			dispose = untrack(track);
-		}
-		counter++;
-	};
-	const uncount = () => queueMicrotask(() => {
-		counter--;
-		if (counter === 0) {
-			dispose?.();
-			dispose = undefined;
-		}
-	});
-	return () => {
-		if (getListener()) {
-			count();
-			onCleanup(uncount);
-		}
-		return source();
-	};
-}
+export type Change<T extends object> =
+	| SetChange<T, keyof T>
+	| DeleteChange<T, keyof T>;
 
-/**
- * Derive a new quantum accessor from an existing one while preserving the quantum behavior.
- * 
- * Essentially, this is a quantum-compatible version of {@link createMemo}.
- * 
- * This provides no advantage over {@link createMemo} for traditional accessors.
- * 
- * @see {@link quantum}, {@link QuantumAccessor}
- * 
- * @example
- * ```ts
- * const count: QuantumAccessor<number> = ...;
- * const double = derive(() => count() * 2);
- * ```
- */
-export function derive<T>(source: QuantumAccessor<T>, options?: SignalOptions<T>): QuantumAccessor<T> {
-	const [ value, setValue ] = createSignal(untrack(source), options);
-	return quantum(value, () => createRoot((dispose) => {
-		createComputed(() => void setValue(source));
-		return dispose;
-	}));
-}
-
-/**
- * Handler for a subscription.
- * 
- * @see {@link Subscription}, {@link createSubscription}
- */
-export type Subscribable<T, Initial extends T | undefined> = {
-	/**
-	 * Get the latest value once.
-	 */
-	get: () => T,
-	/**
-	 * Update the remote value once.
-	 */
-	set: (value: Awaited<T>) => T,
-	/**
-	 * Subscribe to the remote value.
-	 * 
-	 * A disposal function is returned. When called, the subscription is closed.
-	 */
-	sub: (update: Update<Awaited<T>>) => () => void,
-	/**
-	 * Reconcile the incoming remote value with the current local value.
-	 * 
-	 * Three values are supplied for this purpose: the incoming value `remote`, the current value `local`, and the last known remote value `cache`.
-	 */
-	reconcile?: (remote: Awaited<T>, local: Initial, cache: Awaited<T> | undefined) => Awaited<T>,
+export type SetChange<T extends object, K extends keyof T> = {
+	type: "set";
+	key: K;
+	value: T[K];
 };
 
-/**
- * A state driven by a remote subscription.
- * 
- * @see {@link createSubscription} (constructor), {@link QuantumAccessor} (component type)
- */
-export type Subscription<T> = QuantumAccessor<Awaited<T>> & Setter<Awaited<T>> & SubscriptionMembers<T>;
-
-export type SubscriptionMembers<T> = {
-	/**
-	 * The last known remote value.
-	 * 
-	 * It changes when a new remote value is pushed or pulled to this subscribable.
-	 */
-	cache: Accessor<Awaited<T> | undefined>,
-	/**
-	 * Fetch the remote value and reconcile it with the current value (local) and cache.
-	 */
-	pull: () => T,
-	/**
-	 * Push local to the remote.
-	 * 
-	 * @throws {Error} Local value must be set before this is called.
-	 */
-	push: () => T,
-	/**
-	 * True if subscribed to the remote.
-	 */
-	subscribed: Accessor<boolean>,
-	/**
-	 * True if the current value (local) is different from the last known remote value (cache).
-	 */
-	detached: Accessor<boolean>,
+export type DeleteChange<T extends object, K extends keyof T> = {
+	type: "delete";
+	key: K;
 };
 
-/**
- * Options for creation of a subscription.
- * 
- * @see {@link createSubscription}, {@link Subscription}
- */
-export interface SubscriptionOptions<T> {
-	/**
-	 * The initial value of the subscription.
-	 * 
-	 * This value is returned from the subscription accessor until the subscription handler changes it.
-	 * 
-	 * @default undefined
-	 */
-	initial?: Awaited<T>,
-}
+export class ResizableKeyedLens<T extends object> {
+	private _delta: Delta<T> = [];
 
-/**
- * Create a new subscription from a subscription handler ({@link Subscribable}).
- * 
- * A quantum signal is returned for dynamic subscription on observation.
- * Or in other words, the subscription is not created until the returned subscription is used (in a reactive context).
- * Likewise, it is automatically disposed when unused.
- */
-export function createSubscription<T>(handler: Subscribable<T, T>, options: SubscriptionOptions<T> & { initial: T }): Subscription<T>;
-export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined>;
-export function createSubscription<T>(handler: Subscribable<T, T | undefined>, options?: SubscriptionOptions<T>): Subscription<T | undefined> {
-	const [ local, setLocal ] = createSignal<Awaited<T> | undefined>(options?.initial);
-	let hasLocal = options && "initial" in options;
-	const [ cache, setCache ] = createSignal<Awaited<T> | undefined>();
-	const [ subscribed, setSubscribed ] = createSignal(false);
-	const detached = createMemo(() => local() !== cache());
-	const updateFromRemote = (remote: Awaited<T>): Awaited<T> => batch(() => {
-		const reconciled = handler.reconcile ? handler.reconcile(remote, untrack(local), untrack(cache)) : remote;
-		hasLocal = true;
-		setLocal(() => reconciled);
-		setCache(() => reconciled);
-		return reconciled;
-	});
-	const fn: Asig<Awaited<T> | undefined> = atom([
-		quantum(local, () => {
-			const dispose = handler.sub(updateFromRemote);
-			setSubscribed(true);
-			return () => {
-				setSubscribed(false);
-				dispose();
-			};
-		}),
-		(...args: any) => {
-			hasLocal = true;
-			return setLocal(...args);
-		},
-	]);
-	const members: SubscriptionMembers<T> = {
-		pull() {
-			const value = untrack(handler.get);
-			if (typeof value === "object" && value !== null && value instanceof Promise) {
-				return new Promise<Awaited<T>>((resolve, reject) => {
-					value.then((x) => {
-						resolve(updateFromRemote(x));
-					});
-					value.catch(reject);
-				}) as T;
-			}
-			return updateFromRemote(value as Awaited<T>) as T;
-		},
-		push() {
-			if (!hasLocal) {
-				throw new Error("cannot push unset local value");
-			}
-			return handler.set(untrack(local)!);
-		},
-		cache,
-		subscribed,
-		detached,
-	};
-	return Object.assign(fn, members);
+	constructor(
+		private _set: <K extends keyof T>(key: K, value: T[K]) => void,
+		private _delete: (key: keyof T) => void,
+	) {}
+
+	set<K extends keyof T>(key: K, value: T[K]): void {
+		this._set(key, value);
+		this._delta.push({ type: "set", key, value });
+	}
+
+	delete(key: keyof T): void {
+		this._delete(key);
+		this._delta.push({ type: "delete", key });
+	}
 }
