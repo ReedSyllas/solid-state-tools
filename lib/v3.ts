@@ -173,7 +173,7 @@ export class Graph {
 	private _settle = () => {
 		for (const invalidatedId of this.invalidatedIds.values().toArray()) {
 			for (const lens of this.lensesAt(invalidatedId)) {
-				lens._notify();
+				Lens.notify(lens);
 			}
 		}
 		this.invalidatedIds.clear();
@@ -259,7 +259,7 @@ export class Lens<T> {
 	}
 
 	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
-	_notify() {
+	private _notify() {
 		for (const observer of Array.from(this._observers)) {
 			observer();
 		}
@@ -295,6 +295,11 @@ export class Lens<T> {
 		lens._unbind();
 		lens._observers.clear();
 		Object.freeze(lens);
+	}
+	
+	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
+	static notify(lens: Lens<any>) {
+		lens._notify();
 	}
 }
 
