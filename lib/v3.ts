@@ -1,3 +1,5 @@
+import { type Accessor, createSignal } from "solid-js";
+
 function isRef(value: any): value is object {
 	return value !== null && typeof value === "object";
 }
@@ -47,11 +49,11 @@ export function getOwnerRequired(): Owner {
 	return OWNER;
 }
 
-export function runWithOwner(owner: Owner | null, fn: () => void) {
+export function runWithOwner<T>(owner: Owner | null, fn: () => T): T {
 	const currOwner = OWNER;
 	OWNER = owner;
 	try {
-		fn();
+		return fn();
 	} finally {
 		OWNER = currOwner;
 	}
@@ -72,16 +74,15 @@ export function getTurnRequired(): Owner {
 	return TURN;
 }
 
-export function turn(fn: () => void) {
+export function turn<T>(fn: () => T): T {
 	if (TURN !== null) {
 		// Already inside a turn: join it, so its changes settle together with the outer turn's.
-		fn();
-		return;
+		return fn();
 	}
 	const turn = new Owner(null);
 	TURN = turn;
 	try {
-		fn();
+		return fn();
 	} finally {
 		// Always settle, even if `fn` threw. Otherwise the graph stays queued and never notifies again.
 		// TURN stays set while disposing because settling observers may `set` (which needs a turn).
@@ -91,6 +92,10 @@ export function turn(fn: () => void) {
 			TURN = null;
 		}
 	}
+}
+
+export function withTurn<T>(fn: () => T): () => T {
+	return () => turn(fn);
 }
 
 export type GraphId = number;
@@ -109,7 +114,7 @@ export type GraphId = number;
 export class Graph {
 	private nextId: GraphId = 0;
 	private readonly sparseIds: GraphId[] = [];
-	private readonly lenses = new Map<GraphId, Set<Lens<any>>>();
+	private readonly lenses = new Map<GraphId, Set<RoLens<any>>>();
 	private readonly releasers = new Map<GraphId, () => void>();
 	private readonly keyIds = new WeakMap<object, Map<PropertyKey, GraphId>>();
 	private readonly invalidatedIds = new Set<GraphId>();
@@ -149,7 +154,7 @@ export class Graph {
 	}
 
 	/** Binds `lens` to `id`. Returns a function that unbinds it, releasing `id` if it was the last lens. */
-	bind(id: GraphId, lens: Lens<any>): () => void {
+	bind(id: GraphId, lens: RoLens<any>): () => void {
 		this.lenses.get(id)!.add(lens);
 		let unbound = false;
 		return () => {
@@ -163,7 +168,7 @@ export class Graph {
 		};
 	}
 
-	lensesAt(id: GraphId): Lens<any>[] {
+	lensesAt(id: GraphId): RoLens<any>[] {
 		return this.lenses.get(id)?.values().toArray() ?? [];
 	}
 
@@ -206,7 +211,7 @@ export class Graph {
 				this.invalidatedIds.clear();
 				for (const invalidatedId of ids) {
 					for (const lens of this.lensesAt(invalidatedId)) {
-						Lens.notify(lens);
+						RoLens.notify(lens);
 					}
 				}
 			}
@@ -222,49 +227,31 @@ const MAX_SETTLE_ROUNDS = 100;
 const GLOBAL_GRAPH = new Graph();
 
 /**
- * A readable/writable view of a location.
+ * A read-only view of a value in the graph.
  *
- * - `set` replaces the value at this lens's location. For a root lens that location is private
- *   to the lens. For a key lens it is the `(object, key)` slot, which every lens viewing that slot
- *   sees.
- * - Replacing a value rebinds all descendant key lenses to the new object's slots and notifies them.
- *
- * Lifetime: a lens from {@link createLens} belongs to the current owner. A key lens belongs to its
- * parent lens (not to whichever owner first called `.key()`), so it is cached safely across owners
- * and is disposed, in reverse creation order, right before its parent.
+ * Effects run when the turn that changed the value settles. A derived lens (from {@link derive})
+ * is notified one settle round after its source, so chains of derived lenses propagate naturally.
  */
-export class Lens<T> {
-	private _id: GraphId;
-	private _unbind: () => void;
-	private _disposed = false;
+export class RoLens<T> {
+	protected _id: GraphId;
+	protected _unbind: () => void;
+	protected _disposed = false;
 	private readonly _observers = new Set<() => void>();
-	private readonly _children = new Map<PropertyKey, Lens<any>>();
+	/** Extra teardown, e.g. a derived lens unsubscribing from its source. Runs newest first. */
+	private readonly _cleanups: (() => void)[] = [];
 
 	constructor(
-		private readonly _graph: Graph,
-		private readonly _resolveId: () => GraphId,
+		protected readonly _graph: Graph,
+		protected readonly _resolveId: () => GraphId,
 		private readonly _get: () => T,
-		private readonly _set: (next: T) => void,
 	) {
 		this._id = _resolveId();
 		this._unbind = this._graph.bind(this._id, this);
 	}
 
+	/** Always computed from the source, so it is never stale, even mid-turn. */
 	get(): T {
 		return this._get();
-	}
-
-	set(next: T): void {
-		this._set(next);
-		this._graph.invalidate(this._id);
-		// Every lens viewing this slot now has a new value, so all of their descendants must rebind.
-		for (const lens of this._graph.lensesAt(this._id)) {
-			lens._refreshChildren();
-		}
-	}
-
-	setWith(fn: (curr: T) => T): void {
-		this.set(fn(this.get()));
 	}
 
 	onEffect(observer: (value: T) => void): () => void {
@@ -277,6 +264,118 @@ export class Lens<T> {
 
 	effect(observer: (value: T) => void): void {
 		getOwnerRequired().onDispose(this.onEffect(observer));
+	}
+
+	/**
+	 * Creates a read-only lens of `transform(this.get())`, owned by the current owner.
+	 *
+	 * If `eq` is given, the derived lens only notifies when `eq(previous, next)` is false, where
+	 * `previous` is the last value it notified with (or its initial value).
+	 */
+	derive<U>(
+		transform: (value: T) => U,
+		eq?: (curr: U, next: U) => boolean,
+	): RoLens<U> {
+		if (this._disposed) {
+			throw new Error("Cannot derive from a disposed lens.");
+		}
+		const owner = getOwnerRequired();
+		const derived = new RoLens<U>(
+			this._graph,
+			() => this._graph.createId(),
+			() => transform(this.get()),
+		);
+		let last = eq ? derived.get() : undefined;
+		// Subscribe to the lens rather than its id, so this follows key lenses when they rebind.
+		const unsubscribe = this.onEffect(() => {
+			if (eq) {
+				const next = derived.get();
+				if (eq(last as U, next)) return;
+				last = next;
+			}
+			derived._graph.invalidate(derived._id);
+		});
+		derived._cleanups.push(unsubscribe);
+		owner.onDispose(() => RoLens.dispose(derived));
+		return derived;
+	}
+
+	/** Like {@link derive} with an identity transform: notifies only when the value is not `Object.is` equal. */
+	distinct(): RoLens<T> {
+		return this.distinctBy(Object.is);
+	}
+
+	/** Like {@link derive} with an identity transform: notifies only when `eq` returns false. */
+	distinctBy(eq: (curr: T, next: T) => boolean): RoLens<T> {
+		return this.derive((value) => value, eq);
+	}
+
+	private _notify() {
+		for (const observer of Array.from(this._observers)) {
+			observer();
+		}
+	}
+
+	/** Teardown hook for subclasses. Called once, by {@link RoLens.dispose}. */
+	protected _dispose() {
+		let cleanup: (() => void) | undefined;
+		while ((cleanup = this._cleanups.pop()) !== undefined) {
+			cleanup();
+		}
+		this._unbind();
+		this._observers.clear();
+	}
+
+	static dispose(lens: RoLens<any>) {
+		if (lens._disposed) return;
+		lens._disposed = true;
+		lens._dispose();
+		Object.freeze(lens);
+	}
+
+	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
+	static notify(lens: RoLens<any>) {
+		lens._notify();
+	}
+}
+
+/**
+ * A readable/writable view of a location.
+ *
+ * - `set` replaces the value at this lens's location. For a root lens that location is private
+ *   to the lens. For a key lens it is the `(object, key)` slot, which every lens viewing that slot
+ *   sees.
+ * - Replacing a value rebinds all descendant key lenses to the new object's slots and notifies them.
+ *
+ * Lifetime: a lens from {@link createLens} belongs to the current owner. A key lens belongs to its
+ * parent lens (not to whichever owner first called `.key()`), so it is cached safely across owners
+ * and is disposed, in reverse creation order, right before its parent.
+ */
+export class Lens<T> extends RoLens<T> {
+	private readonly _children = new Map<PropertyKey, Lens<any>>();
+
+	constructor(
+		graph: Graph,
+		resolveId: () => GraphId,
+		get: () => T,
+		private readonly _set: (next: T) => void,
+	) {
+		super(graph, resolveId, get);
+	}
+
+	set(next: T): void {
+		this._set(next);
+		this._graph.invalidate(this._id);
+		// Every lens viewing this slot now has a new value, so all of their descendants must rebind.
+		for (const lens of this._graph.lensesAt(this._id)) {
+			if (lens instanceof Lens) {
+				lens._refreshChildren();
+			}
+		}
+	}
+
+	setWith(fn: (curr: T) => T): void {
+		this.set(fn(this.get()));
 	}
 
 	key<T extends object, K extends keyof T>(
@@ -304,13 +403,6 @@ export class Lens<T> {
 		return child;
 	}
 
-	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
-	private _notify() {
-		for (const observer of Array.from(this._observers)) {
-			observer();
-		}
-	}
-
 	/** Re-resolves this lens's slot after an ancestor changed, then does the same for its children. */
 	private _refresh() {
 		const next = this._resolveId();
@@ -335,22 +427,13 @@ export class Lens<T> {
 		}
 	}
 
-	static dispose(lens: Lens<any>) {
-		if (lens._disposed) return;
-		lens._disposed = true;
+	protected override _dispose() {
 		// Children were created after their parent, so they go first, newest first.
-		for (const child of lens._children.values().toArray().reverse()) {
-			Lens.dispose(child);
+		for (const child of this._children.values().toArray().reverse()) {
+			RoLens.dispose(child);
 		}
-		lens._children.clear();
-		lens._unbind();
-		lens._observers.clear();
-		Object.freeze(lens);
-	}
-
-	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
-	static notify(lens: Lens<any>) {
-		lens._notify();
+		this._children.clear();
+		super._dispose();
 	}
 }
 
@@ -368,8 +451,28 @@ export function createLens<T>(value: T): Lens<T> {
 			value = next;
 		},
 	);
-	owner.onDispose(() => Lens.dispose(lens));
+	owner.onDispose(() => RoLens.dispose(lens));
 	return lens;
+}
+
+export function createBlinker(
+	lens: RoLens<any>,
+	/** Duration in ms. */ duration: number = 500,
+): Accessor<boolean> {
+	const [blinking, setBlinking] = createSignal(false);
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	lens.effect(() => {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		} else {
+			setBlinking(true);
+		}
+		timeout = setTimeout(() => {
+			timeout = undefined;
+			setBlinking(false);
+		}, duration);
+	});
+	return blinking;
 }
 
 export type Delta<T extends object> = Change<T>[];
