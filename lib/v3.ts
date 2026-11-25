@@ -359,7 +359,6 @@ export class Lens<T> {
  * (writes through `.key()` are seen by both), but `set` on one never affects the other.
  */
 export function createLens<T>(value: T): Lens<T> {
-	// Resolve the owner first so a missing owner doesn't leak a bound id.
 	const owner = getOwnerRequired();
 	const lens = new Lens<T>(
 		GLOBAL_GRAPH,
