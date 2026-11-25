@@ -5,7 +5,8 @@ function isRef(value: any): value is object {
 let OWNER: Owner | null = null;
 
 export class Owner {
-	private readonly _cleanups = new Set<() => void>();
+	/** A stack: the last cleanup registered runs first. Duplicates are kept at each position. */
+	private readonly _cleanups: (() => void)[] = [];
 	private _disposed = false;
 
 	constructor(parent: Owner | null) {
@@ -15,14 +16,21 @@ export class Owner {
 	dispose() {
 		if (this._disposed) return;
 		this._disposed = true;
-		for (const cleanup of this._cleanups.values().toArray().reverse()) {
+		// Pop rather than iterate a snapshot, so cleanups registered during disposal still run.
+		let cleanup: (() => void) | undefined;
+		while ((cleanup = this._cleanups.pop()) !== undefined) {
 			cleanup();
 		}
 		Object.freeze(this);
 	}
 
+	/** Registers `fn` to run on dispose. If this owner is already disposed, `fn` runs immediately. */
 	onDispose(fn: () => void) {
-		this._cleanups.add(fn);
+		if (this._disposed) {
+			fn();
+			return;
+		}
+		this._cleanups.push(fn);
 	}
 }
 
@@ -42,8 +50,11 @@ export function getOwnerRequired(): Owner {
 export function runWithOwner(owner: Owner | null, fn: () => void) {
 	const currOwner = OWNER;
 	OWNER = owner;
-	fn();
-	OWNER = currOwner;
+	try {
+		fn();
+	} finally {
+		OWNER = currOwner;
+	}
 }
 
 let TURN: Owner | null = null;
@@ -62,12 +73,23 @@ export function getTurnRequired(): Owner {
 }
 
 export function turn(fn: () => void) {
-	if (TURN === null) {
-		const turn = new Owner(null);
-		TURN = turn;
+	if (TURN !== null) {
+		// Already inside a turn: join it, so its changes settle together with the outer turn's.
 		fn();
-		turn.dispose();
-		TURN = null;
+		return;
+	}
+	const turn = new Owner(null);
+	TURN = turn;
+	try {
+		fn();
+	} finally {
+		// Always settle, even if `fn` threw. Otherwise the graph stays queued and never notifies again.
+		// TURN stays set while disposing because settling observers may `set` (which needs a turn).
+		try {
+			turn.dispose();
+		} finally {
+			TURN = null;
+		}
 	}
 }
 
@@ -171,15 +193,31 @@ export class Graph {
 	}
 
 	private _settle = () => {
-		for (const invalidatedId of this.invalidatedIds.values().toArray()) {
-			for (const lens of this.lensesAt(invalidatedId)) {
-				Lens.notify(lens);
+		// Observers may `set` while settling, which invalidates more ids. Keep draining until stable.
+		let rounds = 0;
+		try {
+			while (this.invalidatedIds.size > 0) {
+				if (++rounds > MAX_SETTLE_ROUNDS) {
+					throw new Error(
+						`Graph did not settle after ${MAX_SETTLE_ROUNDS} rounds. An effect is likely setting state it depends on.`,
+					);
+				}
+				const ids = this.invalidatedIds.values().toArray();
+				this.invalidatedIds.clear();
+				for (const invalidatedId of ids) {
+					for (const lens of this.lensesAt(invalidatedId)) {
+						Lens.notify(lens);
+					}
+				}
 			}
+		} finally {
+			this.invalidatedIds.clear();
+			this.isInTurnQueue = false;
 		}
-		this.invalidatedIds.clear();
-		this.isInTurnQueue = false;
 	};
 }
+
+const MAX_SETTLE_ROUNDS = 100;
 
 const GLOBAL_GRAPH = new Graph();
 
@@ -190,6 +228,10 @@ const GLOBAL_GRAPH = new Graph();
  *   to the lens. For a key lens it is the `(object, key)` slot, which every lens viewing that slot
  *   sees.
  * - Replacing a value rebinds all descendant key lenses to the new object's slots and notifies them.
+ *
+ * Lifetime: a lens from {@link createLens} belongs to the current owner. A key lens belongs to its
+ * parent lens (not to whichever owner first called `.key()`), so it is cached safely across owners
+ * and is disposed, in reverse creation order, right before its parent.
  */
 export class Lens<T> {
 	private _id: GraphId;
@@ -206,7 +248,6 @@ export class Lens<T> {
 	) {
 		this._id = _resolveId();
 		this._unbind = this._graph.bind(this._id, this);
-		getOwnerRequired().onDispose(() => Lens.dispose(this));
 	}
 
 	get(): T {
@@ -242,10 +283,15 @@ export class Lens<T> {
 		this: Lens<T>,
 		key: K,
 	): Lens<T[K]> {
+		if (this._disposed) {
+			throw new Error("Cannot create a key lens from a disposed lens.");
+		}
 		const cached = this._children.get(key);
 		if (cached && !cached._disposed) {
 			return cached;
 		}
+		// Re-insert so iteration order (and thus disposal order) matches creation order.
+		this._children.delete(key);
 		const child = new Lens<T[K]>(
 			this._graph,
 			() => this._graph.keyId(this.get(), key),
@@ -292,11 +338,16 @@ export class Lens<T> {
 	static dispose(lens: Lens<any>) {
 		if (lens._disposed) return;
 		lens._disposed = true;
+		// Children were created after their parent, so they go first, newest first.
+		for (const child of lens._children.values().toArray().reverse()) {
+			Lens.dispose(child);
+		}
+		lens._children.clear();
 		lens._unbind();
 		lens._observers.clear();
 		Object.freeze(lens);
 	}
-	
+
 	/** @internal Runs this lens's observers. Called by the graph when the turn settles. */
 	static notify(lens: Lens<any>) {
 		lens._notify();
@@ -308,7 +359,9 @@ export class Lens<T> {
  * (writes through `.key()` are seen by both), but `set` on one never affects the other.
  */
 export function createLens<T>(value: T): Lens<T> {
-	return new Lens<T>(
+	// Resolve the owner first so a missing owner doesn't leak a bound id.
+	const owner = getOwnerRequired();
+	const lens = new Lens<T>(
 		GLOBAL_GRAPH,
 		() => GLOBAL_GRAPH.createId(),
 		() => value,
@@ -316,6 +369,8 @@ export function createLens<T>(value: T): Lens<T> {
 			value = next;
 		},
 	);
+	owner.onDispose(() => Lens.dispose(lens));
+	return lens;
 }
 
 export type Delta<T extends object> = Change<T>[];
