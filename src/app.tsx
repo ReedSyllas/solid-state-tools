@@ -1,25 +1,12 @@
-import { AtomWithMembers } from "./atom-with-members.tsx";
-import { Counter } from "./counter.tsx";
-import { FetchedSignal } from "./fetched-signal.tsx";
-import { LocalStorageSubscription } from "./local-storage-subscription.tsx";
-import { Timer } from "./timer.tsx";
+import { test } from "../lib/v3.ts";
 
 export default function App() {
+	test();
 	return (
 		<>
 			<h1>
 				{"Solid State Tools"}
 			</h1>
-			<hr />
-			<Counter />
-			<hr />
-			<FetchedSignal />
-			<hr />
-			<Timer />
-			<hr />
-			<LocalStorageSubscription />
-			<hr />
-			<AtomWithMembers />
 		</>
 	);
 }
